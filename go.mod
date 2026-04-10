@@ -1,0 +1,8 @@
+module workspace-portal
+
+go 1.26.2
+
+require (
+	github.com/caarlos0/env/v11 v11.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)

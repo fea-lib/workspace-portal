@@ -1,9 +1,11 @@
 # ---------------------------------------- GENERAL ---------------------------------------
 
-# env file
+# config
 .env
 .env.*
 !.env.example
+config.yaml
+.secrets/
 
 # Editor/IDE
 # .idea/
@@ -19,6 +21,7 @@ logs
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
 # Binaries for programs and plugins
+bin/
 *.exe
 *.exe~
 *.dll

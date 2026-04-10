@@ -91,8 +91,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Apply env var overrides for all tagged fields automatically.
-	// env.ParseWithOptions only sets fields that have a matching env var present,
-	// so YAML values are preserved unless the env var is explicitly set.
+	// env.Parse only writes a field when its env var is actually present —
+	// it never touches fields whose env var is unset, so YAML-loaded and
+	// defaults()-populated values are preserved unless explicitly overridden.
 	// PortRange fields are covered automatically because PortRange implements
 	// encoding.TextUnmarshaler — env parses "4100-4199" into PortRange{4100,4199}.
 	if err := env.Parse(cfg); err != nil {
