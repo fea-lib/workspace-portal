@@ -29,7 +29,7 @@ var defaultPrune = map[string]bool{
 	"logs": true, "temp": true, "tmp": true,
 }
 
-// List returns the immediate non-pruned children of path.
+// List returns the immediate visible subdirectories of path.
 // It respects .gitignore files found in path and its ancestors up to root.
 // root is the workspaces root — gitignore walk stops there.
 func List(path, root string) ([]DirEntry, error) {
