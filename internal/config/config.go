@@ -19,7 +19,6 @@ type Config struct {
 	SecretsDir     string    `yaml:"secrets_dir"`
 	OC             OCConfig  `yaml:"oc"               envPrefix:"PORTAL_OC_"`
 	VSCode         VSCConfig `yaml:"vscode"           envPrefix:"PORTAL_VSCODE_"`
-	FS             FSConfig  `yaml:"fs"`
 }
 
 // PortRange is a [lo, hi] port pair that unmarshals from "lo-hi" strings in both
@@ -51,10 +50,6 @@ type OCConfig struct {
 type VSCConfig struct {
 	Binary    string    `yaml:"binary"     env:"BINARY"`
 	PortRange PortRange `yaml:"port_range" env:"PORT_RANGE"`
-}
-
-type FSConfig struct {
-	PruneDirs []string `yaml:"prune_dirs"`
 }
 
 // defaults returns a Config populated with sensible defaults.

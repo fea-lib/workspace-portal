@@ -45,25 +45,31 @@ func List(path, root string) ([]DirEntry, error) {
 		if !e.IsDir() {
 			continue
 		}
+
 		if defaultPrune[e.Name()] {
 			continue
 		}
+
 		absPath := filepath.Join(path, e.Name())
 		if gitignored(absPath, root, matchers) {
 			continue
 		}
+
 		entry := DirEntry{
 			Path:  absPath,
 			Name:  e.Name(),
 			IsGit: isGitRepo(absPath),
 		}
+
 		entry.HasChildren = hasVisibleSubdirs(absPath, root, matchers)
+
 		result = append(result, entry)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name < result[j].Name
 	})
+
 	return result, nil
 }
 
