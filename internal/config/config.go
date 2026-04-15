@@ -5,11 +5,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/caarlos0/env/v11"
 	"gopkg.in/yaml.v3"
+
+	"workspace-portal/internal/portrange"
 )
 
 // Config holds all portal configuration.
@@ -21,35 +22,15 @@ type Config struct {
 	VSCode         VSCConfig `yaml:"vscode"           envPrefix:"PORTAL_VSCODE_"`
 }
 
-// PortRange is a [lo, hi] port pair that unmarshals from "lo-hi" strings in both
-// YAML and environment variables (e.g. "4100-4199"). Implementing
-// encoding.TextUnmarshaler means both yaml.v3 and caarlos0/env pick it up
-// automatically — no custom parsing code needed at the call site.
-type PortRange [2]int
-
-func (p *PortRange) UnmarshalText(text []byte) error {
-	parts := strings.SplitN(string(text), "-", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("port range must be in lo-hi format, got %q", string(text))
-	}
-	lo, err1 := strconv.Atoi(parts[0])
-	hi, err2 := strconv.Atoi(parts[1])
-	if err1 != nil || err2 != nil {
-		return fmt.Errorf("invalid port range %q", string(text))
-	}
-	*p = PortRange{lo, hi}
-	return nil
-}
-
 type OCConfig struct {
-	Binary    string    `yaml:"binary"     env:"BINARY"`
-	PortRange PortRange `yaml:"port_range" env:"PORT_RANGE"`
-	Flags     []string  `yaml:"flags"      env:"FLAGS"`
+	Binary    string              `yaml:"binary"     env:"BINARY"`
+	PortRange portrange.PortRange `yaml:"port_range" env:"PORT_RANGE"`
+	Flags     []string            `yaml:"flags"      env:"FLAGS"`
 }
 
 type VSCConfig struct {
-	Binary    string    `yaml:"binary"     env:"BINARY"`
-	PortRange PortRange `yaml:"port_range" env:"PORT_RANGE"`
+	Binary    string              `yaml:"binary"     env:"BINARY"`
+	PortRange portrange.PortRange `yaml:"port_range" env:"PORT_RANGE"`
 }
 
 // defaults returns a Config populated with sensible defaults.
@@ -59,12 +40,12 @@ func defaults() *Config {
 		SecretsDir: ".secrets",
 		OC: OCConfig{
 			Binary:    "opencode",
-			PortRange: PortRange{4100, 4199},
+			PortRange: portrange.PortRange{4100, 4199},
 			Flags:     []string{"web", "--mdns"},
 		},
 		VSCode: VSCConfig{
 			Binary:    "code-server",
-			PortRange: PortRange{4200, 4299},
+			PortRange: portrange.PortRange{4200, 4299},
 		},
 	}
 }
@@ -89,8 +70,9 @@ func Load(path string) (*Config, error) {
 	// env.Parse only writes a field when its env var is actually present —
 	// it never touches fields whose env var is unset, so YAML-loaded and
 	// defaults()-populated values are preserved unless explicitly overridden.
-	// PortRange fields are covered automatically because PortRange implements
-	// encoding.TextUnmarshaler — env parses "4100-4199" into PortRange{4100,4199}.
+	// portrange.PortRange fields are covered automatically because PortRange
+	// implements encoding.TextUnmarshaler — env parses "4100-4199" into
+	// portrange.PortRange{4100,4199}.
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("applying env overrides: %w", err)
 	}
