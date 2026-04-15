@@ -7,14 +7,14 @@ import (
 	"strconv"
 )
 
-// OCRunner starts and stops OpenCode processes.
-type OCRunner struct {
+// OCSessionFactory is a configured factory for OpenCode sessions.
+type OCSessionFactory struct {
 	Binary     string
 	Flags      []string
 	CORSOrigin string
 }
 
-func (r *OCRunner) Start(dir string, port int) (int, error) {
+func (r *OCSessionFactory) Start(dir string, port int) (int, error) {
 	args := append([]string{}, r.Flags...)
 	args = append(args, "--port", strconv.Itoa(port))
 	if r.CORSOrigin != "" {
@@ -30,7 +30,7 @@ func (r *OCRunner) Start(dir string, port int) (int, error) {
 	return cmd.Process.Pid, nil
 }
 
-func (r *OCRunner) Stop(pid int) error {
+func (r *OCSessionFactory) Stop(pid int) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return nil // already gone
@@ -39,6 +39,6 @@ func (r *OCRunner) Stop(pid int) error {
 	return proc.Kill()
 }
 
-func (r *OCRunner) HealthURL(port int) string {
+func (r *OCSessionFactory) HealthURL(port int) string {
 	return fmt.Sprintf("http://localhost:%d", port)
 }

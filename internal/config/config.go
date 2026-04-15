@@ -14,7 +14,7 @@ import (
 
 // Config holds all portal configuration.
 type Config struct {
-	WorkspacesRoot string    `yaml:"workspaces_root" env:"PORTAL_WORKSPACES_ROOT"`
+	WorkspacesRoot string    `yaml:"workspaces_root"  env:"PORTAL_WORKSPACES_ROOT"`
 	PortalPort     int       `yaml:"portal_port"      env:"PORTAL_PORT"`
 	SecretsDir     string    `yaml:"secrets_dir"`
 	OC             OCConfig  `yaml:"oc"               envPrefix:"PORTAL_OC_"`

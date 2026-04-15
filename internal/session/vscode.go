@@ -6,13 +6,13 @@ import (
 	"os/exec"
 )
 
-// VSCodeRunner starts and stops code-server processes.
-type VSCodeRunner struct {
+// VSCodeSessionFactory is a configured factory for VS Code (code-server) sessions.
+type VSCodeSessionFactory struct {
 	Binary   string
 	Password string
 }
 
-func (r *VSCodeRunner) Start(dir string, port int) (int, error) {
+func (r *VSCodeSessionFactory) Start(dir string, port int) (int, error) {
 	cmd := exec.Command(r.Binary,
 		"--bind-addr", fmt.Sprintf("127.0.0.1:%d", port),
 		"--auth", "password",
@@ -27,7 +27,7 @@ func (r *VSCodeRunner) Start(dir string, port int) (int, error) {
 	return cmd.Process.Pid, nil
 }
 
-func (r *VSCodeRunner) Stop(pid int) error {
+func (r *VSCodeSessionFactory) Stop(pid int) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return nil
@@ -36,6 +36,6 @@ func (r *VSCodeRunner) Stop(pid int) error {
 	return proc.Kill()
 }
 
-func (r *VSCodeRunner) HealthURL(port int) string {
+func (r *VSCodeSessionFactory) HealthURL(port int) string {
 	return fmt.Sprintf("http://localhost:%d", port)
 }

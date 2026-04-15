@@ -23,8 +23,11 @@ type Session struct {
 	URL       string      `json:"url"` // set after health check passes
 }
 
-// Runner is implemented by each session type (OpenCode, VS Code).
-type Runner interface {
+// SessionFactory is implemented by each session type (OpenCode, VS Code).
+// It is a configured factory — it captures everything that is fixed at startup
+// (binary path, flags, credentials) so that Start only needs what varies per
+// session (directory and port).
+type SessionFactory interface {
 	// Start launches the process. Returns when the process has started
 	// (not necessarily healthy yet).
 	Start(dir string, port int) (pid int, err error)
