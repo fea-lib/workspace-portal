@@ -53,6 +53,7 @@ func (h *handler) sessionsStart(w http.ResponseWriter, r *http.Request) {
 	s, err := h.manager.Start(sessionType, dir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// TODO Course 03: return sessions HTML fragment
