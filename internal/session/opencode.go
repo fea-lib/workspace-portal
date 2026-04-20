@@ -15,7 +15,12 @@ type OCSessionFactory struct {
 }
 
 func (r *OCSessionFactory) Start(dir string, port int) (int, error) {
-	args := append([]string{}, r.Flags...)
+	// Use "serve" subcommand for headless HTTP mode.
+	// opencode serve does NOT accept a positional directory argument;
+	// the project is selected via the working directory (cmd.Dir).
+	// opencode serve --port <port> [--cors <origin>] [extra flags...]
+	args := []string{"serve"}
+	args = append(args, r.Flags...)
 	args = append(args, "--port", strconv.Itoa(port))
 	if r.CORSOrigin != "" {
 		args = append(args, "--cors", r.CORSOrigin)

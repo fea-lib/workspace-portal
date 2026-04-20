@@ -108,9 +108,7 @@
       /* Buttons */
       .btn {
         font-size: 0.75rem;
-        padding: 0.5rem 0.75rem; /* increased from 0.25rem 0.5rem */
-        min-width: 44px;
-        min-height: 44px;
+        padding: 0.25rem 0.5rem;
         border: none;
         border-radius: 4px;
         cursor: pointer;
@@ -118,6 +116,14 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+      }
+      /* Larger tap targets on touch devices */
+      @media (pointer: coarse) {
+        .btn {
+          padding: 0.5rem 0.75rem;
+          min-width: 44px;
+          min-height: 44px;
+        }
       }
       .btn-oc {
         background: #2b6cb0;
@@ -201,6 +207,24 @@
       .children.open {
         display: block;
       }
+      /* Error banner inside the sessions area */
+      .sessions-error {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        background: #3b1515;
+        border: 1px solid #742a2a;
+        font-size: 0.8rem;
+        color: #fc8181;
+        margin-top: 0.25rem;
+      }
+      .sessions-error-msg {
+        flex: 1;
+        font-family: monospace;
+        word-break: break-all;
+      }
     </style>
   </head>
   <body hx-ext="sse" sse-connect="/events">
@@ -216,6 +240,7 @@
       </ul>
 
       <h2>Running Sessions</h2>
+      <span id="sessions-indicator" class="htmx-indicator" style="font-size:0.75rem; color:#718096; margin-bottom:0.25rem; display:none">Loading…</span>
       <div
         id="sessions"
         hx-ext="sse"

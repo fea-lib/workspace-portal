@@ -41,7 +41,7 @@ func defaults() *Config {
 		OC: OCConfig{
 			Binary:    "opencode",
 			PortRange: portrange.PortRange{4100, 4199},
-			Flags:     []string{"web", "--mdns"},
+			Flags:     []string{"--mdns"},
 		},
 		VSCode: VSCConfig{
 			Binary:    "code-server",

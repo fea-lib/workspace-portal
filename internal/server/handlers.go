@@ -41,7 +41,7 @@ func (h *handler) index(w http.ResponseWriter, r *http.Request) {
 	data := pageData{
 		Root:        h.cfg.WorkspacesRoot,
 		RootEntries: rows,
-		Sessions:    h.manager.List(),
+		Sessions:    toSessionRows(h.manager.List()),
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
@@ -81,14 +81,14 @@ func (h *handler) fsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) sessions(w http.ResponseWriter, r *http.Request) {
-	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List()); err != nil {
+	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", toSessionRows(h.manager.List())); err != nil {
 		log.Printf("render sessions: %v", err)
 	}
 }
 
 func (h *handler) sessionsStart(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		h.tmpl.ExecuteTemplate(w, "sessions-error.html", "bad request: "+err.Error())
 		return
 	}
 	sessionType := session.SessionType(r.FormValue("type"))
@@ -100,37 +100,37 @@ func (h *handler) sessionsStart(w http.ResponseWriter, r *http.Request) {
 	for _, s := range h.manager.List() {
 		if s.Type == sessionType && s.Dir == absDir {
 			// Already running — just re-render the sessions list
-			h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List())
+			h.tmpl.ExecuteTemplate(w, "sessions.html", toSessionRows(h.manager.List()))
 			return
 		}
 	}
 
 	_, err := h.manager.Start(sessionType, absDir)
 	if err != nil {
-		http.Error(w, "start session: "+err.Error(), http.StatusInternalServerError)
+		h.tmpl.ExecuteTemplate(w, "sessions-error.html", "start session: "+err.Error())
 		return
 	}
 
-	h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List())
+	h.tmpl.ExecuteTemplate(w, "sessions.html", toSessionRows(h.manager.List()))
 }
 
 func (h *handler) sessionsStop(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		h.tmpl.ExecuteTemplate(w, "sessions-error.html", "bad request: "+err.Error())
 		return
 	}
 	id := r.FormValue("id")
 	if id == "" {
-		http.Error(w, "id required", http.StatusBadRequest)
+		h.tmpl.ExecuteTemplate(w, "sessions-error.html", "id required")
 		return
 	}
 
 	if err := h.manager.Stop(id); err != nil {
-		http.Error(w, "stop session: "+err.Error(), http.StatusInternalServerError)
+		h.tmpl.ExecuteTemplate(w, "sessions-error.html", "stop session: "+err.Error())
 		return
 	}
 
-	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List()); err != nil {
+	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", toSessionRows(h.manager.List())); err != nil {
 		log.Printf("render sessionsStop: %v", err)
 	}
 }

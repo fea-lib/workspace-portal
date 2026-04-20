@@ -16,6 +16,7 @@ func (r *VSCodeSessionFactory) Start(dir string, port int) (int, error) {
 	cmd := exec.Command(r.Binary,
 		"--bind-addr", fmt.Sprintf("127.0.0.1:%d", port),
 		"--auth", "password",
+		"--ignore-last-opened",
 		dir,
 	)
 
