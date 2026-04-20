@@ -3,8 +3,13 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
+	"log"
 	"net/http"
+	"path/filepath"
+	"strings"
 
+	"workspace-portal/internal/assets"
 	"workspace-portal/internal/config"
 	fsmod "workspace-portal/internal/fs"
 	"workspace-portal/internal/session"
@@ -13,63 +18,121 @@ import (
 type handler struct {
 	cfg     *config.Config
 	manager *session.Manager
+	tmpl    *template.Template
 }
 
 func (h *handler) index(w http.ResponseWriter, r *http.Request) {
-	// TODO Course 03: render full layout template
-	fmt.Fprintf(w, "workspace-portal - root: %s", h.cfg.WorkspacesRoot)
-}
-
-func (h *handler) fsList(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		path = h.cfg.WorkspacesRoot
-	}
-
-	entries, err := fsmod.List(path, h.cfg.WorkspacesRoot)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
 		return
 	}
 
-	// TODO Course 03: render tree-row template for each entry
-	for _, e := range entries {
-		fmt.Fprintf(w, "%s (git=%v children=%v)\n", e.Name, e.IsGit, e.HasChildren)
+	entries, err := fsmod.List(h.cfg.WorkspacesRoot, h.cfg.WorkspacesRoot)
+	if err != nil {
+		http.Error(w, "list root: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows := make([]treeRowData, len(entries))
+	for i, e := range entries {
+		rows[i] = treeRowData{DirEntry: e}
+	}
+
+	data := pageData{
+		Root:        h.cfg.WorkspacesRoot,
+		RootEntries: rows,
+		Sessions:    h.manager.List(),
+	}
+
+	if err := h.tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
+		log.Printf("render index: %v", err)
+	}
+}
+
+func (h *handler) fsList(w http.ResponseWriter, r *http.Request) {
+	// Sanitise and resolve the requested path
+	relPath := r.URL.Query().Get("path")
+	if relPath == "" {
+		http.Error(w, "path required", http.StatusBadRequest)
+		return
+	}
+
+	// Prevent path traversal: the resolved path must stay inside workspaces root
+	absPath := filepath.Join(h.cfg.WorkspacesRoot, relPath)
+	if !strings.HasPrefix(absPath, h.cfg.WorkspacesRoot) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	entries, err := fsmod.List(absPath, h.cfg.WorkspacesRoot)
+	if err != nil {
+		http.Error(w, "list: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows := make([]treeRowData, len(entries))
+	for i, e := range entries {
+		rows[i] = treeRowData{DirEntry: e}
+	}
+
+	if err := h.tmpl.ExecuteTemplate(w, "tree-children.html", rows); err != nil {
+		log.Printf("render fsList: %v", err)
 	}
 }
 
 func (h *handler) sessions(w http.ResponseWriter, r *http.Request) {
-	// TODO Course 03: render sessions template
-	for _, s := range h.manager.List() {
-		fmt.Fprintf(w, "%s %s port=%d\n", s.Type, s.Dir, s.Port)
+	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List()); err != nil {
+		log.Printf("render sessions: %v", err)
 	}
 }
 
 func (h *handler) sessionsStart(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
 	sessionType := session.SessionType(r.FormValue("type"))
 	dir := r.FormValue("dir")
 
-	s, err := h.manager.Start(sessionType, dir)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if sessionType == "" || dir == "" {
+		http.Error(w, "type and dir required", http.StatusBadRequest)
 		return
 	}
 
-	// TODO Course 03: return sessions HTML fragment
-	fmt.Fprintf(w, "started %s for %s on port %d\n", s.Type, s.Dir, s.Port)
+	// Resolve relative to workspaces root
+	absDir := filepath.Join(h.cfg.WorkspacesRoot, dir)
+
+	_, err := h.manager.Start(sessionType, absDir)
+	if err != nil {
+		http.Error(w, "start session:"+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return the updated sessions list (HTMX swaps this into #sessions)
+	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List()); err != nil {
+		log.Printf("render sessionsStart: %v", err)
+	}
 }
 
 func (h *handler) sessionsStop(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
 	id := r.FormValue("id")
-	if err := h.manager.Stop(id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
 
-	// TODO Course 03: return updated sessions HTML fragment
-	fmt.Fprintf(w, "stopped %s\n", id)
+	if err := h.manager.Stop(id); err != nil {
+		http.Error(w, "stop session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List()); err != nil {
+		log.Printf("render sessionStop: %v", err)
+	}
 }
 
 // events streams Server-Sent Events to the browser.
@@ -102,5 +165,18 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) static(w http.ResponseWriter, r *http.Request) {
-	// TODO Course 03: serve embedded static files
+	// Strip the /static/ prefix and look up the file
+	name := strings.TrimPrefix(r.URL.Path, "/static/")
+	switch name {
+	case "htmx-2.0.8.min.js":
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.Write(assets.HTMXJS)
+	case "htmx-ext-sse.min.js":
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.Write(assets.HTMXSSEJS)
+	default:
+		http.NotFound(w, r)
+	}
 }

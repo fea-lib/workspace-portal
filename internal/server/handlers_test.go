@@ -1,6 +1,7 @@
 package server
 
 import (
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"workspace-portal/internal/assets"
 	"workspace-portal/internal/config"
 	"workspace-portal/internal/portrange"
 	"workspace-portal/internal/session"
@@ -39,7 +41,9 @@ func newTestHandler(t *testing.T) *handler {
 		WorkspacesRoot: tmpDir,
 	}
 
-	return &handler{cfg: cfg, manager: mgr}
+	tmpl := template.Must(template.ParseFS(assets.TemplateFS, "templates/*.html"))
+
+	return &handler{cfg: cfg, manager: mgr, tmpl: tmpl}
 }
 
 func TestIndex(t *testing.T) {

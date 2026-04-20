@@ -55,8 +55,13 @@ func List(path, root string) ([]DirEntry, error) {
 			continue
 		}
 
+		relPath, err := filepath.Rel(root, absPath)
+		if err != nil {
+			relPath = absPath
+		}
+
 		entry := DirEntry{
-			Path:  absPath,
+			Path:  relPath,
 			Name:  e.Name(),
 			IsGit: isGitRepo(absPath),
 		}

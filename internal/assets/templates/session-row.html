@@ -1,0 +1,24 @@
+{{define "session-row.html"}}
+<div class="session-row" id="session-{{.ID}}">
+  <span class="session-type">{{.Type}}</span>
+  <span class="session-dir">{{.Dir}}</span>
+  <span class="session-port">:{{.Port}}</span>
+
+  {{if eq .Status "healthy"}}
+  <a href="{{.URL}}" target="_blank" class="btn btn-open">Open ↗</a>
+  {{else}}
+  <span class="session-status-starting">starting…</span>
+  {{end}}
+
+  <button
+    class="btn btn-stop"
+    hx-post="/sessions/stop"
+    hx-vals='{"id":"{{.ID}}"}'
+    hx-target="#sessions"
+    hx-swap="innerHTML"
+    hx-confirm="Stop {{.Type}} for {{.Dir}}?"
+  >
+    Stop
+  </button>
+</div>
+{{end}}

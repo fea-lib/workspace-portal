@@ -84,9 +84,9 @@ func TestList(t *testing.T) {
 		t.Error(".secrets should appear")
 	}
 
-	// Path must be the full absolute path, not just the parent
+	// Path must be relative to root
 	if e, ok := byName["project-a"]; ok {
-		want := filepath.Join(root, "project-a")
+		want := "project-a"
 		if e.Path != want {
 			t.Errorf("project-a Path: got %q, want %q", e.Path, want)
 		}

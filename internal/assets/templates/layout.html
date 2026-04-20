@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workspace Portal</title>
+    <style>
+      /* Minimal reset and mobile-friendly base */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        font-size: 16px;
+        background: #0f1117;
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+      header {
+        padding: 1rem;
+        border-bottom: 1px solid #2d3748;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      header h1 {
+        font-size: 1rem;
+        font-weight: 600;
+      }
+      header span {
+        font-size: 0.8rem;
+        color: #718096;
+        font-family: monospace;
+      }
+      main {
+        padding: 1rem;
+        max-width: 900px;
+        margin: 0 auto;
+      }
+      h2 {
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #718096;
+        margin: 1.5rem 0 0.5rem;
+      }
+      /* Tree */
+      .tree {
+        list-style: none;
+      }
+      .tree-item {
+        border-bottom: 1px solid #1a202c;
+      }
+      .tree-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.25rem;
+        cursor: pointer;
+        user-select: none;
+      }
+      .tree-row:hover {
+        background: #1a202c;
+      }
+      .tree-indent {
+        padding-left: 1.25rem;
+      }
+      .tree-icon {
+        width: 1rem;
+        text-align: center;
+        font-size: 0.75rem;
+        color: #718096;
+      }
+      .tree-name {
+        flex: 1;
+        font-size: 0.875rem;
+        font-family: monospace;
+      }
+      .tree-name.git::after {
+        content: " git";
+        font-size: 0.7rem;
+        color: #48bb78;
+        background: #1a3329;
+        padding: 0 0.25rem;
+        border-radius: 3px;
+        margin-left: 0.25rem;
+      }
+      .tree-actions {
+        display: flex;
+        gap: 0.25rem;
+      }
+      /* Buttons */
+      .btn {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .btn-oc {
+        background: #2b6cb0;
+        color: #fff;
+      }
+      .btn-oc:hover {
+        background: #2c5282;
+      }
+      .btn-vs {
+        background: #553c9a;
+        color: #fff;
+      }
+      .btn-vs:hover {
+        background: #44337a;
+      }
+      .btn-stop {
+        background: #742a2a;
+        color: #fff;
+      }
+      .btn-stop:hover {
+        background: #9b2c2c;
+      }
+      .btn-open {
+        background: #276749;
+        color: #fff;
+      }
+      .btn-open:hover {
+        background: #22543d;
+      }
+      /* Sessions */
+      #sessions {
+        margin-top: 1rem;
+      }
+      .session-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #1a202c;
+        font-size: 0.875rem;
+      }
+      .session-type {
+        font-size: 0.7rem;
+        background: #2d3748;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        font-family: monospace;
+      }
+      .session-dir {
+        flex: 1;
+        font-family: monospace;
+        color: #a0aec0;
+      }
+      .session-port {
+        font-size: 0.75rem;
+        color: #718096;
+        font-family: monospace;
+      }
+      .session-status-starting {
+        color: #d69e2e;
+        font-size: 0.75rem;
+      }
+      .session-status-healthy {
+        color: #48bb78;
+        font-size: 0.75rem;
+      }
+      /* Loading indicator (shown while htmx request in flight) */
+      .htmx-indicator {
+        display: none;
+      }
+      .htmx-request .htmx-indicator {
+        display: inline;
+      }
+      .htmx-request.htmx-indicator {
+        display: inline;
+      }
+      /* Children container */
+      .children {
+        display: none;
+      }
+      .children.open {
+        display: block;
+      }
+    </style>
+  </head>
+  <body hx-ext="sse" sse-connect="/events">
+    <header>
+      <h1>Workspace Portal</h1>
+      <span>{{.Root}}</span>
+    </header>
+
+    <main>
+      <h2>Directories</h2>
+      <ul class="tree" id="tree-root">
+        {{template "tree-children.html" .RootEntries}}
+      </ul>
+
+      <h2>Running Sessions</h2>
+      <div
+        id="sessions"
+        hx-ext="sse"
+        sse-swap="session.started,session.stopped,session.healthy"
+        hx-get="/sessions"
+        hx-trigger="sse:session.started, sse:session.stopped, sse:session.healthy"
+      >
+        {{template "sessions.html" .Sessions}}
+      </div>
+    </main>
+
+    <script src="/static/htmx-2.0.8.min.js"></script>
+    <script src="/static/htmx-ext-sse.min.js"></script>
+    <script>
+      function toggleChildren(icon, id) {
+        const children = document.getElementById("children-" + id);
+        if (!children) return;
+
+        const isOpen = children.classList.toggle("open");
+        icon.textContent = isOpen ? "▼" : "▶";
+      }
+    </script>
+  </body>
+</html>

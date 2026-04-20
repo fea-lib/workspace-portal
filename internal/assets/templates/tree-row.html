@@ -1,0 +1,50 @@
+{{define "tree-row.html"}}
+<li class="tree-item" id="item-{{.SafeID}}">
+  <div class="tree-row">
+    {{if .HasChildren}}
+    <span
+      class="tree-icon"
+      hx-get="/fs/list?path={{.Path}}"
+      hx-target="#children-{{.SafeID}}"
+      hx-swap="innerHTML"
+      hx-on:click="toggleChildren(this, '{{.SafeID}}')"
+      title="Expand"
+      >▶</span
+    >
+    {{else}}
+    <span class="tree-icon" style="color: #2d3748">—</span>
+    {{end}}
+
+    <span class="tree-name{{if .IsGit}} git{{end}}">{{.Name}}</span>
+
+    <div class="tree-actions">
+      <button
+        class="btn btn-oc"
+        hx-post="/sessions/start"
+        hx-vals='{"type":"opencode","dir":"{{.Path}}"}'
+        hx-target="#sessions"
+        hx-swap="innerHTML"
+        hx-indicator="#sessions-indicator"
+      >
+        OpenCode
+      </button>
+      <button
+        class="btn btn-vs"
+        hx-post="/sessions/start"
+        hx-vals='{"type":"vscode","dir":"{{.Path}}"}'
+        hx-target="#sessions"
+        hx-swap="innerHTML"
+        hx-indicator="#sessions-indicator"
+      >
+        VS
+      </button>
+    </div>
+  </div>
+
+  {{if .HasChildren}}
+  <ul class="tree children tree-indent" id="children-{{.SafeID}}">
+    <!-- children loaded lazily via hx-get above -->
+  </ul>
+  {{end}}
+</li>
+{{end}}
