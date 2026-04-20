@@ -21,10 +21,7 @@ type Server struct {
 }
 
 func New(cfg *config.Config, mgr session.ManagerInterface) *Server {
-	tmpl, err := template.ParseFS(assets.TemplateFS, "templates/*.html")
-	if err != nil {
-		log.Fatalf("parse templates: %v", err)
-	}
+	tmpl := template.Must(template.ParseFS(assets.TemplateFS, "templates/*.html"))
 
 	h := &handler{cfg: cfg, manager: mgr, tmpl: tmpl}
 

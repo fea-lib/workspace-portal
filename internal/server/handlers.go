@@ -94,13 +94,16 @@ func (h *handler) sessionsStart(w http.ResponseWriter, r *http.Request) {
 	sessionType := session.SessionType(r.FormValue("type"))
 	dir := r.FormValue("dir")
 
-	if sessionType == "" || dir == "" {
-		http.Error(w, "type and dir required", http.StatusBadRequest)
-		return
-	}
-
-	// Resolve relative to workspaces root
 	absDir := filepath.Join(h.cfg.WorkspacesRoot, dir)
+
+	// Check for an existing session with the same type and directory
+	for _, s := range h.manager.List() {
+		if s.Type == sessionType && s.Dir == absDir {
+			// Already running — just re-render the sessions list
+			h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List())
+			return
+		}
+	}
 
 	_, err := h.manager.Start(sessionType, absDir)
 	if err != nil {
@@ -108,10 +111,7 @@ func (h *handler) sessionsStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the updated sessions list (HTMX swaps this into #sessions)
-	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List()); err != nil {
-		log.Printf("render sessionsStart: %v", err)
-	}
+	h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List())
 }
 
 func (h *handler) sessionsStop(w http.ResponseWriter, r *http.Request) {
