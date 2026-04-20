@@ -17,7 +17,7 @@ import (
 
 type handler struct {
 	cfg     *config.Config
-	manager *session.Manager
+	manager session.ManagerInterface
 	tmpl    *template.Template
 }
 
@@ -104,7 +104,7 @@ func (h *handler) sessionsStart(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.manager.Start(sessionType, absDir)
 	if err != nil {
-		http.Error(w, "start session:"+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "start session: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -131,7 +131,7 @@ func (h *handler) sessionsStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "sessions.html", h.manager.List()); err != nil {
-		log.Printf("render sessionStop: %v", err)
+		log.Printf("render sessionsStop: %v", err)
 	}
 }
 

@@ -15,16 +15,18 @@ import (
 
 type Server struct {
 	cfg     *config.Config
-	manager *session.Manager
+	manager session.ManagerInterface
 	tmpl    *template.Template
 	mux     *http.ServeMux
 }
 
-func New(cfg *config.Config, mgr *session.Manager) *Server {
+func New(cfg *config.Config, mgr session.ManagerInterface) *Server {
 	tmpl, err := template.ParseFS(assets.TemplateFS, "templates/*.html")
 	if err != nil {
 		log.Fatalf("parse templates: %v", err)
 	}
+
+	h := &handler{cfg: cfg, manager: mgr, tmpl: tmpl}
 
 	s := &Server{
 		cfg:     cfg,
@@ -33,19 +35,26 @@ func New(cfg *config.Config, mgr *session.Manager) *Server {
 		mux:     http.NewServeMux(),
 	}
 
-	// routes wired in Lesson 9
+	s.mux.HandleFunc("GET /", h.index)
+	s.mux.HandleFunc("GET /fs/list", h.fsList)
+	s.mux.HandleFunc("GET /sessions", h.sessions)
+	s.mux.HandleFunc("POST /sessions/start", h.sessionsStart)
+	s.mux.HandleFunc("POST /sessions/stop", h.sessionsStop)
+	s.mux.HandleFunc("GET /events", h.events)
+	s.mux.HandleFunc("GET /static/", h.static)
 
 	return s
 }
 
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
+}
+
 // Start builds all dependencies and starts the HTTP server.
 func Start(cfg *config.Config) error {
-	// State file lives in the user's local data directory
 	stateDir, _ := os.UserHomeDir()
 	stateFile := filepath.Join(stateDir, ".local", "share", "workspace-portal", "sessions.json")
 
-	// Build manager — each factory is paired with its type and port range via Register().
-	// The registeredFactory type is unexported; Register() is the only way in.
 	manager := session.NewManager(
 		stateFile,
 		session.Register(
@@ -60,29 +69,10 @@ func Start(cfg *config.Config) error {
 		),
 	)
 
-	tmpl, err := template.ParseFS(assets.TemplateFS, "templates/*.html")
-	if err != nil {
-		log.Fatalf("parse templates: %v", err)
-	}
-
-	// HTTP mux
-	mux := http.NewServeMux()
-	h := &handler{
-		cfg:     cfg,
-		manager: manager,
-		tmpl:    tmpl,
-	}
-
-	mux.HandleFunc("GET /", h.index)
-	mux.HandleFunc("GET /fs/list", h.fsList)
-	mux.HandleFunc("GET /sessions", h.sessions)
-	mux.HandleFunc("POST /sessions/start", h.sessionsStart)
-	mux.HandleFunc("POST /sessions/stop", h.sessionsStop)
-	mux.HandleFunc("GET /events", h.events)
-	mux.HandleFunc("GET /static/", h.static)
+	srv := New(cfg, manager)
 
 	addr := fmt.Sprintf(":%d", cfg.PortalPort)
 	log.Printf("listening on %s", addr)
 
-	return http.ListenAndServe(addr, mux)
+	return http.ListenAndServe(addr, srv)
 }

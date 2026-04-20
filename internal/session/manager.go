@@ -32,6 +32,16 @@ func Register(sessionType SessionType, factory SessionFactory, portRange portran
 	return registeredFactory{sessionType: sessionType, factory: factory, portRange: portRange}
 }
 
+// ManagerInterface defines the methods the HTTP handlers need.
+// The concrete Manager implements this interface.
+type ManagerInterface interface {
+	Start(sessionType SessionType, dir string) (*Session, error)
+	Stop(id string) error
+	List() []*Session
+	Get(id string) (*Session, bool)
+	Events() <-chan Event
+}
+
 // Manager manages the lifecycle of all running sessions.
 type Manager struct {
 	mu        sync.Mutex
@@ -81,6 +91,14 @@ func NewManager(stateFile string, registrations ...registeredFactory) *Manager {
 // Events returns the channel for SSE subscribers.
 func (m *Manager) Events() <-chan Event {
 	return m.events
+}
+
+// Get returns the session with the given ID, or false if not found.
+func (m *Manager) Get(id string) (*Session, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	return s, ok
 }
 
 // List returns all current sessions.

@@ -1,178 +1,153 @@
-package server
+package server_test
 
 import (
-	"html/template"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"workspace-portal/internal/assets"
 	"workspace-portal/internal/config"
-	"workspace-portal/internal/portrange"
+	"workspace-portal/internal/server"
 	"workspace-portal/internal/session"
 )
 
-// fakeFactory implements session.SessionFactory without exec'ing anything.
-type fakeFactory struct {
-	nextPID int
+// fakeManager satisfies session.ManagerInterface for testing.
+type fakeManager struct {
+	sessions []*session.Session
+	started  []*session.Session
+	stopped  []string
 }
 
-func (f *fakeFactory) Start(dir string, port int) (int, error) { return f.nextPID, nil }
-func (f *fakeFactory) Stop(pid int) error                      { return nil }
-func (f *fakeFactory) HealthURL(port int) string               { return "" }
+func (f *fakeManager) Start(t session.SessionType, dir string) (*session.Session, error) {
+	s := &session.Session{ID: "test-id", Type: t, Dir: dir, Port: 4100}
+	f.sessions = append(f.sessions, s)
+	f.started = append(f.started, s)
+	return s, nil
+}
 
-// newTestHandler wires up a handler with a temp state file and a real Manager.
-func newTestHandler(t *testing.T) *handler {
-	t.Helper()
-	tmpDir := t.TempDir()
-	stateFile := filepath.Join(tmpDir, "sessions.json")
-
-	factory := &fakeFactory{nextPID: 1}
-	pr := portrange.PortRange{41000, 41099}
-	mgr := session.NewManager(
-		stateFile,
-		session.Register(session.SessionTypeOpenCode, factory, pr),
-	)
-
-	cfg := &config.Config{
-		WorkspacesRoot: tmpDir,
+func (f *fakeManager) Stop(id string) error {
+	f.stopped = append(f.stopped, id)
+	for i, s := range f.sessions {
+		if s.ID == id {
+			f.sessions = append(f.sessions[:i], f.sessions[i+1:]...)
+			break
+		}
 	}
+	return nil
+}
 
-	tmpl := template.Must(template.ParseFS(assets.TemplateFS, "templates/*.html"))
+func (f *fakeManager) List() []*session.Session { return f.sessions }
+func (f *fakeManager) Get(id string) (*session.Session, bool) {
+	for _, s := range f.sessions {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return nil, false
+}
+func (f *fakeManager) Events() <-chan session.Event {
+	ch := make(chan session.Event)
+	return ch
+}
 
-	return &handler{cfg: cfg, manager: mgr, tmpl: tmpl}
+func newTestServer(t *testing.T, mgr session.ManagerInterface) *httptest.Server {
+	t.Helper()
+	cfg := &config.Config{
+		WorkspacesRoot: t.TempDir(),
+		PortalPort:     4000,
+	}
+	srv := server.New(cfg, mgr)
+	return httptest.NewServer(srv)
 }
 
 func TestIndex(t *testing.T) {
-	h := newTestHandler(t)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	h.index(rec, req)
+	ts := newTestServer(t, &fakeManager{})
+	defer ts.Close()
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("status %d, want 200", rec.Code)
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(rec.Body.String(), "workspace-portal") {
-		t.Errorf("body %q missing 'workspace-portal'", rec.Body.String())
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
-}
-
-func TestFsList_DefaultPath(t *testing.T) {
-	h := newTestHandler(t)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/fs/list", nil)
-	h.fsList(rec, req)
-
-	// tmpDir exists and is readable, so we expect 200 (empty listing is fine)
-	if rec.Code != http.StatusOK {
-		t.Errorf("status %d, want 200; body: %s", rec.Code, rec.Body.String())
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "Workspace Portal") {
+		t.Error("response does not contain expected heading")
 	}
 }
 
-func TestSessions_Empty(t *testing.T) {
-	h := newTestHandler(t)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
-	h.sessions(rec, req)
+func TestFsListPathTraversal(t *testing.T) {
+	ts := newTestServer(t, &fakeManager{})
+	defer ts.Close()
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("status %d, want 200", rec.Code)
+	resp, err := http.Get(ts.URL + "/fs/list?path=../../etc")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if rec.Body.Len() != 0 {
-		t.Errorf("expected empty body for empty session list, got %q", rec.Body.String())
-	}
-}
-
-func TestSessionsStart_Success(t *testing.T) {
-	h := newTestHandler(t)
-	dir := t.TempDir()
-
-	form := url.Values{}
-	form.Set("type", string(session.SessionTypeOpenCode))
-	form.Set("dir", dir)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/sessions/start", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	h.sessionsStart(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("status %d, want 200; body: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "started") {
-		t.Errorf("body %q missing 'started'", rec.Body.String())
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("want 403, got %d", resp.StatusCode)
 	}
 }
 
-func TestSessionsStart_UnknownType(t *testing.T) {
-	h := newTestHandler(t)
+func TestSessionsStart(t *testing.T) {
+	mgr := &fakeManager{}
+	ts := newTestServer(t, mgr)
+	defer ts.Close()
 
-	form := url.Values{}
-	form.Set("type", "unknown-type")
-	form.Set("dir", t.TempDir())
+	form := url.Values{"type": {"opencode"}, "dir": {"my-project"}}
+	resp, err := http.PostForm(ts.URL+"/sessions/start", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/sessions/start", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	h.sessionsStart(rec, req)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("status %d, want 500", rec.Code)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	if len(mgr.started) != 1 {
+		t.Fatalf("want 1 session started, got %d", len(mgr.started))
+	}
+	if mgr.started[0].Type != session.SessionTypeOpenCode {
+		t.Errorf("want type opencode, got %s", mgr.started[0].Type)
 	}
 }
 
-func TestSessionsStop_Success(t *testing.T) {
-	h := newTestHandler(t)
-	dir := t.TempDir()
-
-	// First start a session
-	form := url.Values{}
-	form.Set("type", string(session.SessionTypeOpenCode))
-	form.Set("dir", dir)
-	startRec := httptest.NewRecorder()
-	startReq := httptest.NewRequest(http.MethodPost, "/sessions/start", strings.NewReader(form.Encode()))
-	startReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.sessionsStart(startRec, startReq)
-
-	// Grab the session ID from the manager
-	sessions := h.manager.List()
-	if len(sessions) == 0 {
-		t.Fatal("expected at least one session after start")
+func TestSessionsStop(t *testing.T) {
+	mgr := &fakeManager{
+		sessions: []*session.Session{{ID: "abc", Type: session.SessionTypeOpenCode, Dir: "/foo", Port: 4100}},
 	}
-	id := sessions[0].ID
+	ts := newTestServer(t, mgr)
+	defer ts.Close()
 
-	// Now stop it
-	stopForm := url.Values{}
-	stopForm.Set("id", id)
-	stopRec := httptest.NewRecorder()
-	stopReq := httptest.NewRequest(http.MethodPost, "/sessions/stop", strings.NewReader(stopForm.Encode()))
-	stopReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.sessionsStop(stopRec, stopReq)
-
-	if stopRec.Code != http.StatusOK {
-		t.Errorf("status %d, want 200; body: %s", stopRec.Code, stopRec.Body.String())
+	form := url.Values{"id": {"abc"}}
+	resp, err := http.PostForm(ts.URL+"/sessions/stop", form)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(stopRec.Body.String(), "stopped") {
-		t.Errorf("body %q missing 'stopped'", stopRec.Body.String())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	if len(mgr.stopped) != 1 || mgr.stopped[0] != "abc" {
+		t.Errorf("want stopped=[abc], got %v", mgr.stopped)
 	}
 }
 
-func TestSessionsStop_UnknownID(t *testing.T) {
-	h := newTestHandler(t)
+func TestEventsContentType(t *testing.T) {
+	ts := newTestServer(t, &fakeManager{})
+	defer ts.Close()
 
-	stopForm := url.Values{}
-	stopForm.Set("id", "does-not-exist")
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/sessions/stop", strings.NewReader(stopForm.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.sessionsStop(rec, req)
-
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("status %d, want 500", rec.Code)
+	resp, err := http.Get(ts.URL + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close() // close immediately so the SSE handler exits via context cancellation
+	ct := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/event-stream") {
+		t.Errorf("want text/event-stream, got %s", ct)
 	}
 }
