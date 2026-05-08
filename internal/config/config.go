@@ -19,6 +19,7 @@ type Config struct {
 	PortalPort     int       `yaml:"portal_port"      env:"PORTAL_PORT"`
 	SecretsDir     string    `yaml:"secrets_dir"`
 	OC             OCConfig  `yaml:"oc"               envPrefix:"PORTAL_OC_"`
+	Tailscale      TSConfig  `yaml:"tailscale"        envPrefix:"PORTAL_TAILSCALE_"`
 	VSCode         VSCConfig `yaml:"vscode"           envPrefix:"PORTAL_VSCODE_"`
 }
 
@@ -26,6 +27,11 @@ type OCConfig struct {
 	Binary    string              `yaml:"binary"     env:"BINARY"`
 	PortRange portrange.PortRange `yaml:"port_range" env:"PORT_RANGE"`
 	Flags     []string            `yaml:"flags"      env:"FLAGS"`
+}
+
+type TSConfig struct {
+	Enabled bool   `yaml:"enabled" env:"ENABLED"`
+	Binary  string `yaml:"binary"  env:"BINARY"`
 }
 
 type VSCConfig struct {
@@ -43,6 +49,10 @@ func defaults() *Config {
 			PortRange: portrange.PortRange{4100, 4199},
 			Flags:     []string{"--mdns"},
 		},
+		Tailscale: TSConfig{
+			Binary: "tailscale",
+		},
+
 		VSCode: VSCConfig{
 			Binary:    "code-server",
 			PortRange: portrange.PortRange{4200, 4299},
