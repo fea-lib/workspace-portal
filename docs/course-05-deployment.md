@@ -126,102 +126,7 @@ Create `deploy/launchd/com.workspace-portal.plist.tmpl`:
 
 ---
 
-## Lesson 3 — The Install Script
-
-Create `deploy/launchd/install.sh`:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-# ─── Defaults ─────────────────────────────────────────────────────────────────
-BINARY="${PORTAL_BINARY:-/usr/local/bin/portal}"
-CONFIG="${PORTAL_CONFIG:-$HOME/.config/workspace-portal/config.yaml}"
-LOG="${PORTAL_LOG:-$HOME/Library/Logs/workspace-portal.log}"
-PLIST_NAME="com.workspace-portal"
-PLIST_DST="$HOME/Library/LaunchAgents/${PLIST_NAME}.plist"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# ─── Check the binary exists ──────────────────────────────────────────────────
-if [ ! -f "$BINARY" ]; then
-  echo "Error: portal binary not found at $BINARY"
-  echo "Build it first: go build -o $BINARY ./cmd/portal"
-  exit 1
-fi
-
-# ─── Create config directory ──────────────────────────────────────────────────
-mkdir -p "$(dirname "$CONFIG")"
-if [ ! -f "$CONFIG" ]; then
-  echo "No config file found at $CONFIG"
-  echo "Creating from example — edit before starting the service."
-  cp "$SCRIPT_DIR/../../config.example.yaml" "$CONFIG"
-fi
-
-# ─── Substitute template ──────────────────────────────────────────────────────
-sed \
-  -e "s|PORTAL_BINARY|${BINARY}|g" \
-  -e "s|PORTAL_CONFIG|${CONFIG}|g" \
-  -e "s|PORTAL_LOG|${LOG}|g" \
-  -e "s|PORTAL_HOME|${HOME}|g" \
-  "$SCRIPT_DIR/com.workspace-portal.plist.tmpl" \
-  > "$PLIST_DST"
-
-echo "Wrote plist to $PLIST_DST"
-
-# ─── Load or reload the agent ─────────────────────────────────────────────────
-# Unload first in case it is already loaded (idempotent reinstall)
-launchctl unload "$PLIST_DST" 2>/dev/null || true
-launchctl load -w "$PLIST_DST"
-
-echo "Agent loaded. Check status with:"
-echo "  launchctl list | grep workspace-portal"
-echo "  tail -f $LOG"
-```
-
-Make it executable:
-
-```bash
-chmod +x deploy/launchd/install.sh
-```
-
-### Run the installer
-
-```bash
-# Build the binary first
-go build -o /usr/local/bin/portal ./cmd/portal
-
-# Install the agent
-./deploy/launchd/install.sh
-```
-
-The portal starts immediately and on every subsequent login. It logs to `~/Library/Logs/workspace-portal.log`.
-
-### launchctl cheat sheet
-
-```bash
-# Check if the agent is running
-launchctl list | grep workspace-portal
-
-# Stop the agent (temporary — starts again on next login)
-launchctl stop com.workspace-portal
-
-# Start the agent
-launchctl start com.workspace-portal
-
-# Unload permanently (disable autostart)
-launchctl unload ~/Library/LaunchAgents/com.workspace-portal.plist
-
-# Reload after editing the plist
-launchctl unload ~/Library/LaunchAgents/com.workspace-portal.plist
-launchctl load -w ~/Library/LaunchAgents/com.workspace-portal.plist
-
-# View logs
-tail -f ~/Library/Logs/workspace-portal.log
-```
-
----
-
-## Lesson 4 — The `config.example.yaml`
+## Lesson 3 — The `config.example.yaml`
 
 Create `config.example.yaml` at the repo root. Every option must be documented:
 
@@ -286,6 +191,120 @@ fs:
   # These are additive to the built-in prune list (node_modules, dist, etc.).
   # Env: PORTAL_FS_PRUNE_DIRS (comma-separated)
   prune_dirs: []
+```
+
+---
+
+## Lesson 4 — The Install Script
+
+Create `deploy/launchd/install.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── Defaults ─────────────────────────────────────────────────────────────────
+BINARY="${PORTAL_BINARY:-/usr/local/bin/portal}"
+CONFIG="${PORTAL_CONFIG:-$HOME/.config/workspace-portal/config.yaml}"
+LOG="${PORTAL_LOG:-$HOME/Library/Logs/workspace-portal.log}"
+PLIST_NAME="com.workspace-portal"
+PLIST_DST="$HOME/Library/LaunchAgents/${PLIST_NAME}.plist"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ─── Check the binary exists ──────────────────────────────────────────────────
+if [ ! -f "$BINARY" ]; then
+  echo "Error: portal binary not found at $BINARY"
+  echo "Build it first: go build -o $BINARY ./cmd/portal"
+  exit 1
+fi
+
+# ─── Create config directory ──────────────────────────────────────────────────
+mkdir -p "$(dirname "$CONFIG")"
+if [ ! -f "$CONFIG" ]; then
+  echo "No config file found at $CONFIG"
+  echo "Creating from example — edit before starting the service."
+  cp "$SCRIPT_DIR/../../config.example.yaml" "$CONFIG"
+fi
+
+# ─── Substitute template ──────────────────────────────────────────────────────
+sed \
+  -e "s|PORTAL_BINARY|${BINARY}|g" \
+  -e "s|PORTAL_CONFIG|${CONFIG}|g" \
+  -e "s|PORTAL_LOG|${LOG}|g" \
+  -e "s|PORTAL_HOME|${HOME}|g" \
+  "$SCRIPT_DIR/com.workspace-portal.plist.tmpl" \
+  > "$PLIST_DST"
+
+echo "Wrote plist to $PLIST_DST"
+
+# ─── Load or reload the agent ─────────────────────────────────────────────────
+# Unload first in case it is already loaded (idempotent reinstall)
+launchctl unload "$PLIST_DST" 2>/dev/null || true
+launchctl load -w "$PLIST_DST"
+
+echo "Agent loaded. Check status with:"
+echo "  launchctl list | grep workspace-portal"
+echo "  tail -f $LOG"
+```
+
+Make it executable:
+
+```bash
+chmod +x deploy/launchd/install.sh
+```
+
+### The `install` Make target
+
+Now that the install script exists, wire it into the `Makefile` so the full installation — build, copy binary, register launchd agent — is a single command. Add the `install` target to the `Makefile` at the repo root:
+
+```makefile
+.PHONY: build run test install
+
+build:
+	go build -ldflags="-s -w" -o bin/workspace-portal ./cmd/portal
+
+run:
+	go run ./cmd/portal --config config.yaml
+
+test:
+	go test -v ./...
+
+install: build
+	cp bin/workspace-portal /usr/local/bin/portal
+	./deploy/launchd/install.sh
+```
+
+`install` depends on `build`, so running `make install` always produces a fresh binary before copying it. The binary is copied to `/usr/local/bin/portal` — the name `portal` (not `workspace-portal`) keeps the CLI command short for daily use. `deploy/launchd/install.sh` is then invoked, which substitutes the plist template and loads the launchd agent.
+
+### Run the installer
+
+```bash
+make install
+```
+
+The portal starts immediately and on every subsequent login. It logs to `~/Library/Logs/workspace-portal.log`.
+
+### launchctl cheat sheet
+
+```bash
+# Check if the agent is running
+launchctl list | grep workspace-portal
+
+# Stop the agent (temporary — starts again on next login)
+launchctl stop com.workspace-portal
+
+# Start the agent
+launchctl start com.workspace-portal
+
+# Unload permanently (disable autostart)
+launchctl unload ~/Library/LaunchAgents/com.workspace-portal.plist
+
+# Reload after editing the plist
+launchctl unload ~/Library/LaunchAgents/com.workspace-portal.plist
+launchctl load -w ~/Library/LaunchAgents/com.workspace-portal.plist
+
+# View logs
+tail -f ~/Library/Logs/workspace-portal.log
 ```
 
 ---
@@ -360,7 +379,6 @@ Built with Go + HTMX. Single binary. No Node.js required.
 ```bash
 git clone https://github.com/yourusername/workspace-portal
 cd workspace-portal
-go build -o /usr/local/bin/portal ./cmd/portal
 ```
 
 ### 2. Configure
@@ -377,14 +395,14 @@ cp -r secrets.example .secrets
 ### 3. Run (manual test)
 
 ```bash
-portal --config ~/.config/workspace-portal/config.yaml
+go run ./cmd/portal --config ~/.config/workspace-portal/config.yaml
 # Open http://localhost:4000
 ```
 
 ### 4. Install as a background service
 
 ```bash
-./deploy/launchd/install.sh
+make install
 # Portal starts now and on every login
 # Logs: ~/Library/Logs/workspace-portal.log
 ```

@@ -1,0 +1,60 @@
+# workspace-portal — config.example.yaml
+# Copy to ~/.config/workspace-portal/config.yaml and fill in your values.
+# All values can also be set via environment variables (prefix: PORTAL_).
+# Env vars take precedence over config file values.
+
+# ─── Required ─────────────────────────────────────────────────────────────────
+
+# Absolute path to the directory you want to browse and launch sessions from.
+# Example: /Users/yourname/workspaces
+workspaces_root: ~/workspaces
+
+# ─── Server ───────────────────────────────────────────────────────────────────
+
+# Port the portal HTTP server listens on.
+# Env: PORTAL_PORTAL_PORT
+portal_port: 4000
+
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+
+# Directory containing secret files (one file per secret, named by secret name).
+# Relative paths are resolved from the config file location.
+# Docker users: secrets are also resolved from /run/secrets/{name} automatically.
+# Env: PORTAL_SECRETS_DIR
+secrets_dir: .secrets
+
+# ─── OpenCode ─────────────────────────────────────────────────────────────────
+
+oc:
+  # Path to the opencode binary. Must be on PATH or absolute.
+  # Env: PORTAL_OC_BINARY
+  binary: opencode
+
+  # Port range to assign to OC sessions. First free port is used.
+  # Env: PORTAL_OC_PORT_RANGE (format: "4100-4199")
+  port_range: [4100, 4199]
+
+  # Extra CLI flags to pass to opencode on startup.
+  # Default: ["web", "--mdns"] — starts OC in web mode with mDNS disabled.
+  # Env: PORTAL_OC_FLAGS (comma-separated)
+  flags:
+    - web
+
+# ─── VS Code (code-server) ────────────────────────────────────────────────────
+
+vscode:
+  # Path to the code-server binary. Must be on PATH or absolute.
+  # Env: PORTAL_VSCODE_BINARY
+  binary: code-server
+
+  # Port range to assign to VS Code sessions.
+  # Env: PORTAL_VSCODE_PORT_RANGE
+  port_range: [4200, 4299]
+
+# ─── Filesystem ───────────────────────────────────────────────────────────────
+
+fs:
+  # Additional directory names to hide when expanding the tree.
+  # These are additive to the built-in prune list (node_modules, dist, etc.).
+  # Env: PORTAL_FS_PRUNE_DIRS (comma-separated)
+  prune_dirs: []

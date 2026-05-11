@@ -135,7 +135,7 @@ func main() {
 The Makefile wraps the commands you'll run repeatedly so you don't have to remember the flags:
 
 ```makefile
-.PHONY: build run test install
+.PHONY: build run test
 
 build:
 	go build -ldflags="-s -w" -o bin/workspace-portal ./cmd/portal
@@ -145,9 +145,6 @@ run:
 
 test:
 	go test -v ./...
-
-install: build
-	cp bin/workspace-portal /usr/local/bin/workspace-portal
 ```
 
 `-ldflags="-s -w"` strips the symbol table and DWARF debug info from the binary. It has no effect on behaviour but reduces binary size by ~25–30%.

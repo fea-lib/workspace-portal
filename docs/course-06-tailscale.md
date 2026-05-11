@@ -233,14 +233,14 @@ With MagicDNS and HTTPS enabled, exposing the portal is a single command.
 ### Register the portal
 
 ```bash
-tailscale serve --bg --https=443 http://localhost:4000
+tailscale serve --bg --https=4000 http://localhost:4000
 ```
 
-The portal is now accessible at `https://dev-mac.tail1234.ts.net` from any device on your tailnet.
+The portal is now accessible at `https://dev-mac.tail1234.ts.net:4000` from any device on your tailnet — mirroring the local port so the URL is consistent whether you're accessing it locally or over the tailnet.
 
 ```bash
 tailscale serve status
-# https://dev-mac.tail1234.ts.net (tailnet only)
+# https://dev-mac.tail1234.ts.net:4000 (tailnet only)
 # |-- / http://localhost:4000
 ```
 
@@ -249,7 +249,7 @@ The `--bg` flag persists this across reboots and Tailscale restarts. If you rest
 ### Remove the portal registration
 
 ```bash
-tailscale serve --https=443 off
+tailscale serve --https=4000 off
 ```
 
 ### Verify from another device
@@ -257,7 +257,7 @@ tailscale serve --https=443 off
 On your phone or another machine on the tailnet:
 
 ```
-https://dev-mac.tail1234.ts.net
+https://dev-mac.tail1234.ts.net:4000
 ```
 
 You should see the portal UI with a valid HTTPS certificate, no browser warnings.
@@ -810,7 +810,7 @@ tailscale cert dev-mac.tail1234.ts.net 2>&1
 openssl s_client -connect dev-mac.tail1234.ts.net:443 </dev/null 2>/dev/null | openssl x509 -noout -dates
 ```
 
-If the cert is expired, `tailscale serve` usually auto-renews. If it doesn't, run `tailscale serve reset && tailscale serve --bg --https=443 http://localhost:4000` to force re-registration.
+If the cert is expired, `tailscale serve` usually auto-renews. If it doesn't, run `tailscale serve reset && tailscale serve --bg --https=4000 http://localhost:4000` to force re-registration.
 
 ### Key expiry breaks remote access
 
@@ -856,9 +856,9 @@ Before relying on Tailscale for daily remote access:
 - [ ] HTTPS certificates are enabled (same DNS page)
 
 ### Portal exposure
-- [ ] `tailscale serve --bg --https=443 http://localhost:4000` has been run
+- [ ] `tailscale serve --bg --https=4000 http://localhost:4000` has been run
 - [ ] `tailscale serve status` shows the portal route
-- [ ] `https://<machine>.ts.net` opens the portal from another device on the tailnet
+- [ ] `https://<machine>.ts.net:4000` opens the portal from another device on the tailnet
 - [ ] The browser shows a valid certificate (no warning)
 
 ### Session exposure
@@ -881,7 +881,7 @@ The portal is now fully integrated with Tailscale:
 2. **Connected** — machine on tailnet, named and key expiry disabled
 3. **MagicDNS enabled** — `<machine>.ts.net` resolves across all tailnet devices
 4. **HTTPS enabled** — valid Let's Encrypt certs provisioned via Tailscale
-5. **Portal exposed** — `https://<machine>.ts.net` accessible from phone, tablet, and any tailnet device
+5. **Portal exposed** — `https://<machine>.ts.net:4000` accessible from phone, tablet, and any tailnet device
 6. **Sessions exposed** — each OpenCode/VS Code/script session gets its own HTTPS port, registered on start and deregistered on stop
 7. **Go module implemented** — `internal/tailscale.Serve` shells out to the CLI; `NoopRegistrar` handles the disabled path transparently
 

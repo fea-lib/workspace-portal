@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.workspace-portal</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>PORTAL_BINARY</string>
+    <string>--config</string>
+    <string>PORTAL_CONFIG</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>PORTAL_LOG</string>
+
+  <key>StandardErrorPath</key>
+  <string>PORTAL_LOG</string>
+
+  <key>WorkingDirectory</key>
+  <string>PORTAL_HOME</string>
+
+  <!-- Environment variables available to the portal process -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>PORTAL_HOME</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
+</dict>
+</plist>

@@ -10,4 +10,5 @@ test:
 	go test -v ./...
 
 install: build
-	cp bin/workspace-portal /usr/local/bin/workspace-portal
+	cp bin/workspace-portal /usr/local/bin/portal
+	./deploy/launchd/install.sh
