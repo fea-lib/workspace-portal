@@ -18,7 +18,7 @@ type Serve struct {
 func (s *Serve) Register(port int) (string, error) {
 	p := strconv.Itoa(port)
 	cmd := exec.Command(s.Binary,
-		"serve", "--bg", "--https"+p,
+		"serve", "--bg", "--https="+p,
 		"http://localhost:"+p,
 	)
 
@@ -34,7 +34,7 @@ func (s *Serve) Register(port int) (string, error) {
 // Uses best-effort: if the port was already deregistered, this is a no-op.
 func (s *Serve) Deregister(port int) error {
 	p := strconv.Itoa(port)
-	cmd := exec.Command(s.Binary, "serve", "--https"+p, "off")
+	cmd := exec.Command(s.Binary, "serve", "--https="+p, "off")
 	cmd.Run()
 	return nil
 }

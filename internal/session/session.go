@@ -1,6 +1,9 @@
 package session
 
-import "time"
+import (
+	"os/exec"
+	"time"
+)
 
 // SessionType identifies which editor a session runs.
 // Using a named string type (rather than bare string) makes the compiler
@@ -23,14 +26,13 @@ type Session struct {
 	URL       string      `json:"url"` // set after health check passes
 }
 
-// SessionFactory is implemented by each session type (OpenCode, VS Code).
+	// SessionFactory is implemented by each session type (OpenCode, VS Code).
 // It is a configured factory — it captures everything that is fixed at startup
 // (binary path, flags, credentials) so that Start only needs what varies per
 // session (directory and port).
 type SessionFactory interface {
-	// Start launches the process. Returns when the process has started
-	// (not necessarily healthy yet).
-	Start(dir string, port int) (pid int, err error)
+	// Start launches the process. Returns the exec.Cmd (process not yet healthy).
+	Start(dir string, port int) (cmd *exec.Cmd, err error)
 	// Stop terminates the process.
 	Stop(pid int) error
 	// HealthURL returns the URL to poll for the health check.

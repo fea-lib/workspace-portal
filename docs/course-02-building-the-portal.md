@@ -993,7 +993,10 @@ The `SessionFactory` interface defines the three things the manager needs from a
 ```go
 package session
 
-import "time"
+import (
+    "os/exec"
+    "time"
+)
 
 // SessionType identifies which editor a session runs.
 // Using a named string type (rather than bare string) makes the compiler
@@ -1018,9 +1021,8 @@ type Session struct {
 
 // SessionFactory is implemented by each session type (OpenCode, VS Code).
 type SessionFactory interface {
-    // Start launches the process. Returns when the process has started
-    // (not necessarily healthy yet).
-    Start(dir string, port int) (pid int, err error)
+    // Start launches the process. Returns the exec.Cmd (process not yet healthy).
+    Start(dir string, port int) (cmd *exec.Cmd, err error)
     // Stop terminates the process.
     Stop(pid int) error
     // HealthURL returns the URL to poll for the health check.
@@ -1034,7 +1036,7 @@ type SessionFactory interface {
 
 `opencode serve` does **not** accept a positional directory argument — passing one causes it to print help and exit. The project directory is set via `cmd.Dir` (the process working directory) instead.
 
-`cmd.Start()` (not `cmd.Run()`) is used because we want the process to keep running after `Start` returns — `Run` would block until the process exits.
+`cmd.Start()` (not `cmd.Run()`) is used because we want the process to keep running after `Start` returns — `Run` would block until the process exits. We return the `*exec.Cmd` rather than just the PID so the caller can call `cmd.Wait()` to reap the process when it exits (see the manager section below).
 
 > **Why `serve` and not just `opencode <dir> --port`?**
 > `opencode [project]` is the TUI entrypoint. `opencode serve --port` starts a headless HTTP server that the portal can health-check and that the browser connects to directly.
@@ -1044,6 +1046,7 @@ package session
 
 import (
     "fmt"
+    "log"
     "os"
     "os/exec"
     "strconv"
@@ -1056,7 +1059,7 @@ type OCSessionFactory struct {
     CORSOrigin string
 }
 
-func (r *OCSessionFactory) Start(dir string, port int) (int, error) {
+func (r *OCSessionFactory) Start(dir string, port int) (*exec.Cmd, error) {
     // Use "serve" subcommand for headless HTTP mode.
     // opencode serve does NOT accept a positional directory argument;
     // the project is selected via the working directory (cmd.Dir).
@@ -1070,10 +1073,12 @@ func (r *OCSessionFactory) Start(dir string, port int) (int, error) {
 
     cmd := exec.Command(r.Binary, args...)
     cmd.Dir = dir
+    cmd.Stdout = log.Writer()
+    cmd.Stderr = log.Writer()
     if err := cmd.Start(); err != nil {
-        return 0, fmt.Errorf("starting opencode: %w", err)
+        return nil, fmt.Errorf("starting opencode: %w", err)
     }
-    return cmd.Process.Pid, nil
+    return cmd, nil
 }
 
 func (r *OCSessionFactory) Stop(pid int) error {
@@ -1110,7 +1115,7 @@ type VSCodeSessionFactory struct {
     Password string
 }
 
-func (r *VSCodeSessionFactory) Start(dir string, port int) (int, error) {
+func (r *VSCodeSessionFactory) Start(dir string, port int) (*exec.Cmd, error) {
     cmd := exec.Command(r.Binary,
         "--bind-addr", fmt.Sprintf("127.0.0.1:%d", port),
         "--auth", "password",
@@ -1119,9 +1124,9 @@ func (r *VSCodeSessionFactory) Start(dir string, port int) (int, error) {
     )
     cmd.Env = append(os.Environ(), "PASSWORD="+r.Password)
     if err := cmd.Start(); err != nil {
-        return 0, fmt.Errorf("starting code-server: %w", err)
+        return nil, fmt.Errorf("starting code-server: %w", err)
     }
-    return cmd.Process.Pid, nil
+    return cmd, nil
 }
 
 func (r *VSCodeSessionFactory) Stop(pid int) error {
@@ -1173,8 +1178,11 @@ State persistence is cheap (a small JSON file) and the cost of losing it (all se
 **Why is `Event.Type` a named `EventType` and not a bare `string`?**  
 Same reasoning as `SessionType` — a named string type makes the compiler reject arbitrary string literals and gives IDEs something to autocomplete. The three constants (`EventTypeStarted`, `EventTypeHealthy`, `EventTypeStopped`) are the only valid values; the type makes that contract explicit without the verbosity of the interface-based union approach.
 
-**Why check `proc.Signal(0)` to detect orphans?**  
-`os.FindProcess` on Unix never returns an error — it just constructs a process handle. The only way to check if a process is actually alive is to send it signal 0, which does nothing to the process but returns an error if it doesn't exist or you don't have permission.
+**Why store `*exec.Cmd` in `cmds` and call `cmd.Wait()` in a goroutine?**  
+On macOS (and Linux), a process that has exited but whose parent has not called `wait()` becomes a **zombie** — it occupies an entry in the process table and `proc.Signal(syscall.Signal(0))` returns `nil`, making it appear alive. Storing the `*exec.Cmd` and calling `cmd.Wait()` in a background goroutine reaps the zombie the instant the process exits. The reaper then calls `m.Stop()` to clean up the session map and any external port registrations, rather than relying on the 30-second health-check timeout to detect the dead process.
+
+**Why check `proc.Signal(0)` to detect orphans (in `loadState`)?**  
+`os.FindProcess` on Unix never returns an error — it just constructs a process handle. The only way to check if a process is actually alive is to send it signal 0, which does nothing to the process but returns an error if it doesn't exist or you don't have permission. This check is only used in `loadState` for sessions loaded from a previous run, where no `*exec.Cmd` is available. For actively managed sessions, the reaper goroutine provides immediate and reliable exit detection.
 
 ### `internal/session/manager.go`
 
@@ -1193,9 +1201,11 @@ import (
     "context"
     "encoding/json"
     "fmt"
+    "log"
     "net"
     "net/http"
     "os"
+    "os/exec"
     "path/filepath"
     "sync"
     "syscall"
@@ -1225,6 +1235,7 @@ func Register(sessionType SessionType, factory SessionFactory, portRange portran
 type Manager struct {
     mu        sync.Mutex
     sessions  map[string]*Session
+    cmds      map[string]*exec.Cmd // in-memory only; not persisted
     stateFile string
     events    chan Event // SSE event broadcast channel
     factories map[SessionType]registeredFactory
@@ -1257,6 +1268,7 @@ func NewManager(stateFile string, registrations ...registeredFactory) *Manager {
     }
     m := &Manager{
         sessions:  make(map[string]*Session),
+        cmds:      make(map[string]*exec.Cmd),
         stateFile: stateFile,
         events:    make(chan Event, 64),
         factories: factories,
@@ -1298,7 +1310,7 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
         return nil, err
     }
 
-    pid, err := reg.factory.Start(dir, port)
+    cmd, err := reg.factory.Start(dir, port)
     if err != nil {
         return nil, err
     }
@@ -1308,16 +1320,25 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
         Type:      sessionType,
         Dir:       dir,
         Port:      port,
-        PID:       pid,
+        PID:       cmd.Process.Pid,
         StartedAt: time.Now(),
     }
 
     m.mu.Lock()
     m.sessions[s.ID] = s
+    m.cmds[s.ID] = cmd
     m.mu.Unlock()
     m.saveState()
 
     m.events <- Event{Type: EventTypeStarted, Session: s}
+
+    // Reap the process when it exits so it doesn't become a zombie.
+    // cmd.Wait() blocks until the process exits; when it returns we call
+    // Stop() to remove the session and deregister any external ports.
+    go func() {
+        cmd.Wait()
+        m.Stop(s.ID) //nolint:errcheck
+    }()
 
     // Health check runs in a goroutine — it blocks until the process responds,
     // then updates s.URL and sends the "healthy" event.
@@ -1335,6 +1356,7 @@ func (m *Manager) Stop(id string) error {
         return fmt.Errorf("session %s not found", id)
     }
     delete(m.sessions, id)
+    delete(m.cmds, id)
     m.mu.Unlock()
 
     if reg, ok := m.factories[s.Type]; ok {
@@ -1346,8 +1368,8 @@ func (m *Manager) Stop(id string) error {
 }
 
 // waitHealthy polls until the session responds, then marks it healthy.
-// It times out after 30 seconds to avoid leaking goroutines for processes that
-// fail to start.
+// It times out after 30 seconds; if the process exits first the reaper
+// goroutine in Start() calls Stop() directly so no special check is needed here.
 func (m *Manager) waitHealthy(s *Session, healthURL string) {
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
@@ -1358,7 +1380,9 @@ func (m *Manager) waitHealthy(s *Session, healthURL string) {
     for {
         select {
         case <-ctx.Done():
-            return // timed out — process failed to become healthy
+            log.Printf("session %s (pid %d) did not become healthy in time — removing", s.ID, s.PID)
+            m.Stop(s.ID)
+            return
         case <-ticker.C:
             resp, err := http.Get(healthURL)
             if err == nil && resp.StatusCode < 500 {
@@ -1376,7 +1400,8 @@ func (m *Manager) waitHealthy(s *Session, healthURL string) {
 
 // nextPort finds the first available port in the given range.
 // It checks both the in-use session map (fast) and then attempts to bind
-// the port (authoritative — catches ports used by unrelated processes).
+// the port on both 127.0.0.1 and 0.0.0.0 (authoritative — catches ports
+// used by processes that bind on any interface, e.g. opencode with --mdns).
 func (m *Manager) nextPort(r portrange.PortRange) (int, error) {
     m.mu.Lock()
     inUse := make(map[int]bool)
@@ -1389,13 +1414,25 @@ func (m *Manager) nextPort(r portrange.PortRange) (int, error) {
         if inUse[port] {
             continue
         }
-        ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-        if err == nil {
-            ln.Close()
+        if portFree(port) {
             return port, nil
         }
     }
     return 0, fmt.Errorf("no available ports in range %d-%d", r[0], r[1])
+}
+
+// portFree returns true only if the port is bindable on both 127.0.0.1 and
+// 0.0.0.0. This catches processes that listen on a specific interface as well
+// as those that listen on all interfaces (e.g. opencode serve --mdns).
+func portFree(port int) bool {
+    for _, addr := range []string{"127.0.0.1", "0.0.0.0"} {
+        ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", addr, port))
+        if err != nil {
+            return false
+        }
+        ln.Close()
+    }
+    return true
 }
 
 // findByDirAndType returns an existing session if one is already running.
@@ -1449,15 +1486,17 @@ The manager tests use a `fakeFactory` that satisfies `SessionFactory` without ex
 The `fakeFactory` design:
 
 ```go
-type fakeFactory struct {
-    nextPID int
+func (f *fakeFactory) Start(dir string, port int) (*exec.Cmd, error) {
+    // exec a no-op command so the reaper goroutine has a real *exec.Cmd to Wait() on.
+    cmd := exec.Command("true")
+    cmd.Start()
+    return cmd, nil
 }
-func (f *fakeFactory) Start(dir string, port int) (int, error) { return f.nextPID, nil }
-func (f *fakeFactory) Stop(pid int) error                      { return nil }
-func (f *fakeFactory) HealthURL(port int) string               { return "" }
+func (f *fakeFactory) Stop(pid int) error        { return nil }
+func (f *fakeFactory) HealthURL(port int) string { return "" }
 ```
 
-`HealthURL` returns `""` so `waitHealthy` fires an HTTP request to `http://` (which fails immediately) and exits. This is fine — the health check goroutine is a background concern we don't need to observe in these tests.
+`HealthURL` returns `""` so `waitHealthy` fires an HTTP request to `http://` (which fails immediately) and the 30-second timeout eventually calls `Stop`. The reaper goroutine also calls `Stop` when `cmd.Wait()` returns — whichever happens first wins because `Stop` is idempotent (calling it a second time returns "session not found" which is discarded with `//nolint:errcheck`).
 
 What the tests cover:
 
@@ -1475,7 +1514,7 @@ What the tests cover:
 package session
 
 import (
-    "os"
+    "os/exec"
     "path/filepath"
     "testing"
 
@@ -1486,9 +1525,14 @@ type fakeFactory struct {
     nextPID int
 }
 
-func (f *fakeFactory) Start(dir string, port int) (int, error) { return f.nextPID, nil }
-func (f *fakeFactory) Stop(pid int) error                      { return nil }
-func (f *fakeFactory) HealthURL(port int) string               { return "" }
+func (f *fakeFactory) Start(dir string, port int) (*exec.Cmd, error) {
+    // Return a pre-exited cmd so the reaper goroutine exits immediately.
+    cmd := exec.Command("true")
+    cmd.Start()
+    return cmd, nil
+}
+func (f *fakeFactory) Stop(pid int) error    { return nil }
+func (f *fakeFactory) HealthURL(port int) string { return "" }
 
 func newTestManager(t *testing.T, factory *fakeFactory) *Manager {
     t.Helper()
@@ -1498,7 +1542,7 @@ func newTestManager(t *testing.T, factory *fakeFactory) *Manager {
 }
 
 func TestStart_UnknownType(t *testing.T) {
-    m := newTestManager(t, &fakeFactory{nextPID: 1})
+    m := newTestManager(t, &fakeFactory{})
     _, err := m.Start("vscode", "/some/dir")
     if err == nil {
         t.Fatal("expected error for unknown session type, got nil")
@@ -1506,7 +1550,7 @@ func TestStart_UnknownType(t *testing.T) {
 }
 
 func TestStart_CreatesSession(t *testing.T) {
-    m := newTestManager(t, &fakeFactory{nextPID: 42})
+    m := newTestManager(t, &fakeFactory{})
     s, err := m.Start(SessionTypeOpenCode, "/my/project")
     if err != nil {
         t.Fatalf("unexpected error: %v", err)
@@ -1517,8 +1561,8 @@ func TestStart_CreatesSession(t *testing.T) {
     if s.Dir != "/my/project" {
         t.Errorf("got dir %q, want /my/project", s.Dir)
     }
-    if s.PID != 42 {
-        t.Errorf("got pid %d, want 42", s.PID)
+    if s.PID == 0 {
+        t.Error("expected non-zero PID")
     }
     if s.Port < 40000 || s.Port > 40099 {
         t.Errorf("port %d out of range", s.Port)
@@ -1529,7 +1573,7 @@ func TestStart_CreatesSession(t *testing.T) {
 }
 
 func TestStart_Idempotent(t *testing.T) {
-    m := newTestManager(t, &fakeFactory{nextPID: 1})
+    m := newTestManager(t, &fakeFactory{})
     s1, _ := m.Start(SessionTypeOpenCode, "/my/project")
     s2, _ := m.Start(SessionTypeOpenCode, "/my/project")
     if s1.ID != s2.ID {
@@ -1538,7 +1582,7 @@ func TestStart_Idempotent(t *testing.T) {
 }
 
 func TestStop_RemovesSession(t *testing.T) {
-    m := newTestManager(t, &fakeFactory{nextPID: 7})
+    m := newTestManager(t, &fakeFactory{})
     s, _ := m.Start(SessionTypeOpenCode, "/my/project")
     m.Stop(s.ID)
     for _, existing := range m.List() {
@@ -1566,7 +1610,7 @@ func TestStateFile_RoundTrip(t *testing.T) {
     dir := t.TempDir()
     stateFile := filepath.Join(dir, "sessions.json")
     pr := portrange.PortRange{40000, 40099}
-    factory := &fakeFactory{nextPID: 99}
+    factory := &fakeFactory{}
 
     m1 := NewManager(stateFile, Register(SessionTypeOpenCode, factory, pr))
     m1.Start(SessionTypeOpenCode, "/persisted/project")
@@ -1581,7 +1625,7 @@ func TestStateFile_RoundTrip(t *testing.T) {
 }
 
 func TestEvents_StartSendsEvent(t *testing.T) {
-    m := newTestManager(t, &fakeFactory{nextPID: 5})
+    m := newTestManager(t, &fakeFactory{})
     s, _ := m.Start(SessionTypeOpenCode, "/event/test")
     select {
     case ev := <-m.Events():
@@ -1597,7 +1641,7 @@ func TestEvents_StartSendsEvent(t *testing.T) {
 }
 
 func TestEvents_StopSendsEvent(t *testing.T) {
-    m := newTestManager(t, &fakeFactory{nextPID: 5})
+    m := newTestManager(t, &fakeFactory{})
     s, _ := m.Start(SessionTypeOpenCode, "/event/stop")
     <-m.Events() // drain started event
     m.Stop(s.ID)

@@ -243,10 +243,9 @@
       <span id="sessions-indicator" class="htmx-indicator" style="font-size:0.75rem; color:#718096; margin-bottom:0.25rem; display:none">Loading…</span>
       <div
         id="sessions"
-        hx-ext="sse"
-        sse-swap="session.started,session.stopped,session.healthy"
         hx-get="/sessions"
         hx-trigger="sse:session.started, sse:session.stopped, sse:session.healthy"
+        hx-swap="innerHTML"
       >
         {{template "sessions.html" .Sessions}}
       </div>

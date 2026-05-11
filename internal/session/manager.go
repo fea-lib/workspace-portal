@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"syscall"
@@ -48,6 +49,7 @@ type Manager struct {
 	mu        sync.Mutex
 	factories map[SessionType]registeredFactory
 	sessions  map[string]*Session
+	cmds      map[string]*exec.Cmd // in-memory only; not persisted
 	stateFile string
 	events    chan Event
 	registrar Registrar // nil-safe: always set, NoopRegistrar when disabled
@@ -82,6 +84,7 @@ func NewManager(stateFile string, registrar Registrar, tsFQDN string, registrati
 
 	m := &Manager{
 		sessions:  make(map[string]*Session),
+		cmds:      make(map[string]*exec.Cmd),
 		stateFile: stateFile,
 		events:    make(chan Event, 64),
 		factories: factories,
@@ -136,7 +139,7 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 		return nil, err
 	}
 
-	pid, err := reg.factory.Start(dir, port)
+	cmd, err := reg.factory.Start(dir, port)
 	if err != nil {
 		return nil, err
 	}
@@ -146,31 +149,28 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 		Type:      sessionType,
 		Dir:       dir,
 		Port:      port,
-		PID:       pid,
+		PID:       cmd.Process.Pid,
 		StartedAt: time.Now(),
 	}
 
 	m.mu.Lock()
 	m.sessions[s.ID] = s
+	m.cmds[s.ID] = cmd
 	m.mu.Unlock()
 	m.saveState()
 
-	m.events <- Event{Type: EventTypeStarted, Session: s}
+	// Reap the process when it exits so it doesn't become a zombie and
+	// so we can detect exit immediately (Signal(0) is unreliable for zombies).
+	go func() {
+		cmd.Wait() // blocks until process exits; reaps it
+		log.Printf("session %s (pid %d) process exited", s.ID, s.PID)
+		// Stop cleans up if still present (waitHealthy may have beaten us here).
+		m.Stop(s.ID) //nolint:errcheck
+	}()
 
-	// Health check runs in a goroutine — it blocks until the process responds,
-	// then updates s.URL and sends the "healthy" event.
+	// Health check + tailscale registration run in a goroutine — it blocks
+	// until the process responds, then updates s.URL and sends the "healthy" event.
 	go m.waitHealthy(s, reg.factory.HealthURL(port))
-
-	url, err := m.registrar.Register(s.Port)
-	if err != nil {
-		log.Printf("tailscale register port %d: %v", s.Port, err)
-		// Non-fatal — session is still usable at localhost
-	} else if url != "" {
-		s.URL = url
-	} else if m.tsFQDN != "" {
-		// tailscale.Serve.Register returns "" — the FQDN is known at startup.
-		s.URL = fmt.Sprintf("https://%s:%d", m.tsFQDN, s.Port)
-	}
 
 	return s, nil
 }
@@ -184,6 +184,7 @@ func (m *Manager) Stop(id string) error {
 		return fmt.Errorf("session %s not found", id)
 	}
 	delete(m.sessions, id)
+	delete(m.cmds, id)
 	m.mu.Unlock()
 
 	// In Manager.Stop(), after reg.factory.Stop(s.PID):
@@ -199,9 +200,9 @@ func (m *Manager) Stop(id string) error {
 	return nil
 }
 
-// waitHealthy polls until the session responds, then marks it healthy.
-// It times out after 30 seconds to avoid leaking goroutines for processes that
-// fail to start.
+// waitHealthy polls until the session responds, registers with tailscale,
+// then marks it healthy. It times out after 30 seconds to avoid leaking
+// goroutines for processes that fail to start.
 func (m *Manager) waitHealthy(s *Session, healthURL string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -212,14 +213,36 @@ func (m *Manager) waitHealthy(s *Session, healthURL string) {
 	for {
 		select {
 		case <-ctx.Done():
-			return // timed out - process failed to become healthy
+			log.Printf("session %s (pid %d) did not become healthy in time — removing", s.ID, s.PID)
+			m.Stop(s.ID)
+			return
 		case <-ticker.C:
 			resp, err := http.Get(healthURL)
 			if err == nil && resp.StatusCode < 500 {
 				resp.Body.Close()
-				m.mu.Lock()
-				s.URL = healthURL
-				m.mu.Unlock()
+
+				// Register with tailscale now that the process is actually listening.
+				url, err := m.registrar.Register(s.Port)
+				if err != nil {
+					log.Printf("tailscale register port %d: %v", s.Port, err)
+					// Non-fatal — session is still usable at localhost
+				} else if url != "" {
+					m.mu.Lock()
+					s.URL = url
+					m.mu.Unlock()
+				} else if m.tsFQDN != "" {
+					// tailscale.Serve.Register returns "" — the FQDN is known at startup.
+					m.mu.Lock()
+					s.URL = fmt.Sprintf("https://%s:%d", m.tsFQDN, s.Port)
+					m.mu.Unlock()
+				}
+
+				if s.URL == "" {
+					m.mu.Lock()
+					s.URL = healthURL
+					m.mu.Unlock()
+				}
+
 				m.saveState()
 				m.events <- Event{Type: EventTypeHealthy, Session: s}
 				return
@@ -230,7 +253,8 @@ func (m *Manager) waitHealthy(s *Session, healthURL string) {
 
 // nextPort finds the first available port in the given range.
 // It checks both the in-use session map (fast) and then attempts to bind
-// the port (authoritative — catches ports used by unrelated processes).
+// the port on both 127.0.0.1 and 0.0.0.0 (authoritative — catches ports
+// used by processes that bind on any interface, e.g. opencode with --mdns).
 func (m *Manager) nextPort(r portrange.PortRange) (int, error) {
 	m.mu.Lock()
 	inUse := make(map[int]bool)
@@ -244,14 +268,26 @@ func (m *Manager) nextPort(r portrange.PortRange) (int, error) {
 			continue
 		}
 
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-		if err == nil {
-			ln.Close()
+		if portFree(port) {
 			return port, nil
 		}
 	}
 
 	return 0, fmt.Errorf("no available ports in range %d-%d", r[0], r[1])
+}
+
+// portFree returns true only if the port is bindable on both 127.0.0.1 and
+// 0.0.0.0. This catches processes that listen on a specific interface as well
+// as those that listen on all interfaces (e.g. opencode serve --mdns).
+func portFree(port int) bool {
+	for _, addr := range []string{"127.0.0.1", "0.0.0.0"} {
+		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", addr, port))
+		if err != nil {
+			return false
+		}
+		ln.Close()
+	}
+	return true
 }
 
 // findByDirAndType returns an existing session if one is already running.
@@ -281,6 +317,8 @@ func (m *Manager) saveState() {
 }
 
 // loadState reads persisted sessions and removes orphans (processes no longer alive).
+// For each orphan, it also deregisters the port from the external registrar so
+// that the port range is fully reclaimed on restart.
 func (m *Manager) loadState() {
 	data, err := os.ReadFile(m.stateFile)
 	if err != nil {
@@ -294,8 +332,16 @@ func (m *Manager) loadState() {
 
 	for id, s := range loaded {
 		proc, err := os.FindProcess(s.PID)
+		// On macOS, FindProcess always succeeds; send signal 0 to check liveness.
+		// Zombie processes also return nil here, but since we have no cmd to Wait()
+		// on for sessions loaded from a previous run, we accept the race and rely
+		// on Deregister + port re-use rather than perfect zombie detection.
 		if err != nil || proc.Signal(syscall.Signal(0)) != nil {
-			continue // orphan - process is gone
+			// Orphan — process is gone. Clean up its external registrations
+			// so the port is returned to the available range.
+			log.Printf("deregistering orphaned session %s (port %d, pid %d)", id, s.Port, s.PID)
+			m.registrar.Deregister(s.Port)
+			continue
 		}
 		m.sessions[id] = s
 	}

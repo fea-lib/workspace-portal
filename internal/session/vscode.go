@@ -12,7 +12,7 @@ type VSCodeSessionFactory struct {
 	Password string
 }
 
-func (r *VSCodeSessionFactory) Start(dir string, port int) (int, error) {
+func (r *VSCodeSessionFactory) Start(dir string, port int) (*exec.Cmd, error) {
 	cmd := exec.Command(r.Binary,
 		"--bind-addr", fmt.Sprintf("127.0.0.1:%d", port),
 		"--auth", "password",
@@ -22,10 +22,10 @@ func (r *VSCodeSessionFactory) Start(dir string, port int) (int, error) {
 
 	cmd.Env = append(os.Environ(), "PASSWORD="+r.Password)
 	if err := cmd.Start(); err != nil {
-		return 0, fmt.Errorf("starting code-server: %w", err)
+		return nil, fmt.Errorf("starting code-server: %w", err)
 	}
 
-	return cmd.Process.Pid, nil
+	return cmd, nil
 }
 
 func (r *VSCodeSessionFactory) Stop(pid int) error {

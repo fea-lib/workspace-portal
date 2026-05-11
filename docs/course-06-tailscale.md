@@ -445,30 +445,48 @@ func NewManager(stateFile string, registrar Registrar, tsFQDN string, registrati
 
 `tsFQDN` is captured once at startup rather than queried per session — the machine FQDN does not change while the portal is running.
 
-### Step 3 — Call the registrar in `Manager.Start()`
+### Step 3 — Call the registrar in `waitHealthy()`
 
-After the session process starts (but outside `waitHealthy`, since registration happens immediately — not after the health check), call the registrar and set the session URL:
+Registration must happen **after** the process is confirmed healthy — calling `tailscale serve` before opencode is listening results in 502 errors from the Tailscale reverse proxy. Update `waitHealthy` to register and set the session URL as part of the healthy path:
 
 ```go
-// In Manager.Start(), after m.events <- Event{Type: EventTypeStarted, Session: s}:
-go m.waitHealthy(s, reg.factory.HealthURL(port))
+// In waitHealthy(), replace the s.URL = healthURL line:
+resp, err := http.Get(healthURL)
+if err == nil && resp.StatusCode < 500 {
+    resp.Body.Close()
 
-url, err := m.registrar.Register(s.Port)
-if err != nil {
-    log.Printf("tailscale register port %d: %v", s.Port, err)
-    // Non-fatal — session is still usable at localhost
-} else if url != "" {
-    s.URL = url
-} else if m.tsFQDN != "" {
-    // tailscale.Serve.Register returns "" — the FQDN is known at startup.
-    s.URL = fmt.Sprintf("https://%s:%d", m.tsFQDN, s.Port)
+    // Register with tailscale now that the process is actually listening.
+    url, err := m.registrar.Register(s.Port)
+    if err != nil {
+        log.Printf("tailscale register port %d: %v", s.Port, err)
+        // Non-fatal — session is still usable at localhost
+    } else if url != "" {
+        m.mu.Lock()
+        s.URL = url
+        m.mu.Unlock()
+    } else if m.tsFQDN != "" {
+        // tailscale.Serve.Register returns "" — the FQDN is known at startup.
+        m.mu.Lock()
+        s.URL = fmt.Sprintf("https://%s:%d", m.tsFQDN, s.Port)
+        m.mu.Unlock()
+    }
+
+    if s.URL == "" {
+        m.mu.Lock()
+        s.URL = healthURL
+        m.mu.Unlock()
+    }
+
+    m.saveState()
+    m.events <- Event{Type: EventTypeHealthy, Session: s}
+    return
 }
 ```
 
 Also call `Deregister` in `Stop()`, after removing the session from the map:
 
 ```go
-// In Manager.Stop(), after reg.factory.Stop(s.PID):
+// In Manager.Stop(), after delete(m.sessions, id):
 m.registrar.Deregister(s.Port)
 ```
 
@@ -581,6 +599,7 @@ package session_test
 
 import (
     "fmt"
+    "os/exec"
     "testing"
 
     "workspace-portal/internal/portrange"
@@ -602,12 +621,16 @@ func (m *mockRegistrar) Deregister(port int) error {
     return nil
 }
 
-// noopFactory is a SessionFactory that returns a fixed PID without exec'ing anything.
+// noopFactory is a SessionFactory that starts a no-op process without exec'ing anything real.
 type noopFactory struct{}
 
-func (f *noopFactory) Start(dir string, port int) (int, error) { return 1, nil }
-func (f *noopFactory) Stop(pid int) error                      { return nil }
-func (f *noopFactory) HealthURL(port int) string               { return "" }
+func (f *noopFactory) Start(dir string, port int) (*exec.Cmd, error) {
+    cmd := exec.Command("true")
+    cmd.Start()
+    return cmd, nil
+}
+func (f *noopFactory) Stop(pid int) error        { return nil }
+func (f *noopFactory) HealthURL(port int) string { return "" }
 
 func TestManagerRegistersPortOnStart(t *testing.T) {
     registrar := &mockRegistrar{}

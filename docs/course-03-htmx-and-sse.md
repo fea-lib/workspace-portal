@@ -385,10 +385,9 @@ Create `internal/assets/templates/layout.html`:
     <h2>Running Sessions</h2>
     <span id="sessions-indicator" class="htmx-indicator" style="font-size:0.75rem; color:#718096; margin-bottom:0.25rem; display:none">Loading…</span>
     <div id="sessions"
-         hx-ext="sse"
-         sse-swap="session.started,session.stopped,session.healthy"
          hx-get="/sessions"
-         hx-trigger="sse:session.started, sse:session.stopped, sse:session.healthy">
+         hx-trigger="sse:session.started, sse:session.stopped, sse:session.healthy"
+         hx-swap="innerHTML">
       {{template "sessions.html" .Sessions}}
     </div>
   </main>
@@ -789,12 +788,13 @@ The sessions `<div>` has:
 ```html
 <div id="sessions"
      hx-get="/sessions"
-     hx-trigger="sse:session.started, sse:session.stopped, sse:session.healthy">
+     hx-trigger="sse:session.started, sse:session.stopped, sse:session.healthy"
+     hx-swap="innerHTML">
 ```
 
 When any of those SSE event names arrive, HTMX fires `hx-get="/sessions"` and swaps the response into `#sessions`. The server's `events` handler (already complete from Course 02) writes the events; the server's `sessions` handler re-renders the list.
 
-This pattern — SSE triggers a fresh fetch rather than using SSE data directly — avoids parsing JSON in the browser and keeps the Go server as the sole source of rendered HTML.
+> **Why not `from:body` or `sse-swap`?** The htmx-sse extension dispatches SSE events on the element with `sse-connect` (the `<body>`). Any descendant with `hx-trigger="sse:eventname"` automatically hears those events — no `from:body` modifier needed. Adding `from:body` to only the last comma-separated trigger breaks that event silently. Similarly, `sse-swap` tells the extension to write raw SSE data directly into the element — bypassing the `hx-get` re-fetch entirely and dumping raw JSON into the DOM. The correct pattern is `hx-trigger="sse:..."` alone, which fires a fresh `hx-get` on each event and keeps the server as the sole source of rendered HTML.
 
 ---
 
