@@ -1,7 +1,10 @@
-.PHONY: build run test install
+.PHONY: build deploy run test install
 
 build:
 	go build -ldflags="-s -w" -o bin/workspace-portal ./cmd/portal
+
+deploy: build
+	cp bin/workspace-portal /usr/local/bin/portal
 
 run:
 	go run ./cmd/portal --config config.yaml
@@ -9,6 +12,5 @@ run:
 test:
 	go test -v ./...
 
-install: build
-	cp bin/workspace-portal /usr/local/bin/portal
+install: deploy
 	./deploy/launchd/install.sh

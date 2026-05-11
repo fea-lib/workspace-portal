@@ -93,6 +93,12 @@ func Load(path string) (*Config, error) {
 		cfg.WorkspacesRoot = filepath.Join(home, cfg.WorkspacesRoot[2:])
 	}
 
+	// Expand ~ in secrets dir
+	if strings.HasPrefix(cfg.SecretsDir, "~/") {
+		home, _ := os.UserHomeDir()
+		cfg.SecretsDir = filepath.Join(home, cfg.SecretsDir[2:])
+	}
+
 	// Resolve secrets dir relative to config file location
 	if !filepath.IsAbs(cfg.SecretsDir) {
 		cfg.SecretsDir = filepath.Join(filepath.Dir(path), cfg.SecretsDir)
