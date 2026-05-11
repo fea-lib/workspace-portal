@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Fake tailscale binary — records arguments and exits cleanly.
+# Used by integration tests in the internal/tailscale package.
+echo "fake-tailscale called with: $@"
+exit 0

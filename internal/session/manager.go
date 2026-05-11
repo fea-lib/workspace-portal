@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -49,6 +50,8 @@ type Manager struct {
 	sessions  map[string]*Session
 	stateFile string
 	events    chan Event
+	registrar Registrar // nil-safe: always set, NoopRegistrar when disabled
+	tsFQDN    string    // empty when Tailscale is disabled
 }
 
 // EventType identifies the lifecycle event emitted on the SSE channel.
@@ -71,7 +74,7 @@ type Event struct {
 // NewManager creates a Manager, loads persisted state, and removes orphans.
 // Each factory is registered via Register() and passed as a variadic argument,
 // keeping the unexported registeredFactory type out of the caller's namespace.
-func NewManager(stateFile string, registrations ...registeredFactory) *Manager {
+func NewManager(stateFile string, registrar Registrar, tsFQDN string, registrations ...registeredFactory) *Manager {
 	factories := make(map[SessionType]registeredFactory, len(registrations))
 	for _, r := range registrations {
 		factories[r.sessionType] = r
@@ -82,6 +85,8 @@ func NewManager(stateFile string, registrations ...registeredFactory) *Manager {
 		stateFile: stateFile,
 		events:    make(chan Event, 64),
 		factories: factories,
+		registrar: registrar,
+		tsFQDN:    tsFQDN,
 	}
 	m.loadState()
 
@@ -156,8 +161,18 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 	// then updates s.URL and sends the "healthy" event.
 	go m.waitHealthy(s, reg.factory.HealthURL(port))
 
-	return s, nil
+	url, err := m.registrar.Register(s.Port)
+	if err != nil {
+		log.Printf("tailscale register port %d: %v", s.Port, err)
+		// Non-fatal — session is still usable at localhost
+	} else if url != "" {
+		s.URL = url
+	} else if m.tsFQDN != "" {
+		// tailscale.Serve.Register returns "" — the FQDN is known at startup.
+		s.URL = fmt.Sprintf("https://%s:%d", m.tsFQDN, s.Port)
+	}
 
+	return s, nil
 }
 
 // Stop terminates a session by ID.
@@ -170,6 +185,9 @@ func (m *Manager) Stop(id string) error {
 	}
 	delete(m.sessions, id)
 	m.mu.Unlock()
+
+	// In Manager.Stop(), after reg.factory.Stop(s.PID):
+	m.registrar.Deregister(s.Port)
 
 	if reg, ok := m.factories[s.Type]; ok {
 		reg.factory.Stop(s.PID)

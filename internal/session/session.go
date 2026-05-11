@@ -36,3 +36,18 @@ type SessionFactory interface {
 	// HealthURL returns the URL to poll for the health check.
 	HealthURL(port int) string
 }
+
+// Registrar registers and deregisters a session port with an external proxy
+// (e.g. tailscale serve). NoopRegistrar is used when Tailscale is disabled.
+type Registrar interface {
+	Register(port int) (url string, err error)
+	Deregister(port int) error
+}
+
+// NoopRegistrar is used when Tailscale is disabled.
+// Register and Deregister are no-ops — sessions are still started and
+// assigned ports, but no external proxy registration is performed.
+type NoopRegistrar struct{}
+
+func (n *NoopRegistrar) Register(port int) (string, error) { return "", nil }
+func (n *NoopRegistrar) Deregister(port int) error         { return nil }

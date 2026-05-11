@@ -11,6 +11,7 @@ import (
 	"workspace-portal/internal/assets"
 	"workspace-portal/internal/config"
 	"workspace-portal/internal/session"
+	"workspace-portal/internal/tailscale"
 )
 
 type Server struct {
@@ -52,8 +53,20 @@ func Start(cfg *config.Config) error {
 	stateDir, _ := os.UserHomeDir()
 	stateFile := filepath.Join(stateDir, ".local", "share", "workspace-portal", "sessions.json")
 
+	var tailscalRegistrar session.Registrar
+	var tsFQDN string
+	if cfg.Tailscale.Enabled {
+		ts := &tailscale.Serve{Binary: cfg.Tailscale.Binary}
+		tsFQDN = ts.FDQN()
+		tailscalRegistrar = ts
+	} else {
+		tailscalRegistrar = &session.NoopRegistrar{}
+	}
+
 	manager := session.NewManager(
 		stateFile,
+		tailscalRegistrar,
+		tsFQDN,
 		session.Register(
 			session.SessionTypeOpenCode,
 			&session.OCSessionFactory{Binary: cfg.OC.Binary, Flags: cfg.OC.Flags},

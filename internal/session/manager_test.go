@@ -32,7 +32,7 @@ func newTestManager(t *testing.T, factory *fakeFactory) *Manager {
 	t.Helper()
 	stateFile := filepath.Join(t.TempDir(), "sessions.json")
 	pr := portrange.PortRange{40000, 40099}
-	return NewManager(stateFile, Register(SessionTypeOpenCode, factory, pr))
+	return NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, factory, pr))
 }
 
 func TestStart_UnknownType(t *testing.T) {
@@ -119,7 +119,7 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	factory := &fakeFactory{nextPID: 99}
 
 	// Create manager and start a session
-	m1 := NewManager(stateFile, Register(SessionTypeOpenCode, factory, pr))
+	m1 := NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, factory, pr))
 	s, err := m1.Start(SessionTypeOpenCode, "/persisted/project")
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -134,7 +134,7 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	// (loadState skips orphans, but PID 99 is likely not alive — so we only
 	// check that the JSON was written and is readable without crashing).
 	_ = s
-	m2 := NewManager(stateFile, Register(SessionTypeOpenCode, factory, pr))
+	m2 := NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, factory, pr))
 	_ = m2.List() // must not panic
 }
 

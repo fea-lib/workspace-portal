@@ -369,6 +369,7 @@ func (s *Serve) Register(port int) (string, error) {
 }
 
 // Deregister removes the serve config for the given port.
+
 // Uses best-effort: if the port was already deregistered, this is a no-op.
 func (s *Serve) Deregister(port int) error {
     p := strconv.Itoa(port)
@@ -378,9 +379,130 @@ func (s *Serve) Deregister(port int) error {
 }
 ```
 
-### Wiring in `internal/server/server.go`
+`cmd.CombinedOutput()` runs the command, waits for it to finish, and returns the merged stdout+stderr output as a byte slice along with any error. Using it instead of separate `cmd.Stdout`/`cmd.Stderr` means that if `tailscale serve` fails, the error message includes the CLI's own output — making the wrapped error much easier to diagnose.
 
-In `Start()`, after loading the config, build the registrar:
+`Deregister` uses `cmd.Run()` instead — it discards output and the return value intentionally, since a "port not found" failure on deregister is harmless.
+
+### Step 1 — Define `Registrar` in `internal/session/session.go`
+
+`Serve` in `internal/tailscale` implements a `Registrar` interface, but that interface doesn't exist yet. Add it to `session.go` alongside the existing `SessionFactory`:
+
+```go
+// Registrar registers and deregisters a session port with an external proxy
+// (e.g. tailscale serve). NoopRegistrar is used when Tailscale is disabled.
+type Registrar interface {
+    Register(port int) (url string, err error)
+    Deregister(port int) error
+}
+
+// NoopRegistrar is used when Tailscale is disabled.
+// Register and Deregister are no-ops — sessions are still started and
+// assigned ports, but no external proxy registration is performed.
+type NoopRegistrar struct{}
+
+func (n *NoopRegistrar) Register(port int) (string, error) { return "", nil }
+func (n *NoopRegistrar) Deregister(port int) error         { return nil }
+```
+
+### Step 2 — Add `registrar` and `tsFQDN` to `Manager`
+
+The `Manager` struct needs to hold the registrar and the machine's Tailscale FQDN (used to construct session URLs when Tailscale is enabled). Update the struct and `NewManager` in `internal/session/manager.go`:
+
+```go
+type Manager struct {
+    mu        sync.Mutex
+    factories map[SessionType]registeredFactory
+    sessions  map[string]*Session
+    stateFile string
+    events    chan Event
+    registrar Registrar // nil-safe: always set, NoopRegistrar when disabled
+    tsFQDN    string    // empty when Tailscale is disabled
+}
+```
+
+Update `NewManager` to accept both:
+
+```go
+func NewManager(stateFile string, registrar Registrar, tsFQDN string, registrations ...registeredFactory) *Manager {
+    factories := make(map[SessionType]registeredFactory, len(registrations))
+    for _, r := range registrations {
+        factories[r.sessionType] = r
+    }
+
+    m := &Manager{
+        sessions:  make(map[string]*Session),
+        stateFile: stateFile,
+        events:    make(chan Event, 64),
+        factories: factories,
+        registrar: registrar,
+        tsFQDN:    tsFQDN,
+    }
+    m.loadState()
+
+    return m
+}
+```
+
+`tsFQDN` is captured once at startup rather than queried per session — the machine FQDN does not change while the portal is running.
+
+### Step 3 — Call the registrar in `Manager.Start()`
+
+After the session process starts (but outside `waitHealthy`, since registration happens immediately — not after the health check), call the registrar and set the session URL:
+
+```go
+// In Manager.Start(), after m.events <- Event{Type: EventTypeStarted, Session: s}:
+go m.waitHealthy(s, reg.factory.HealthURL(port))
+
+url, err := m.registrar.Register(s.Port)
+if err != nil {
+    log.Printf("tailscale register port %d: %v", s.Port, err)
+    // Non-fatal — session is still usable at localhost
+} else if url != "" {
+    s.URL = url
+} else if m.tsFQDN != "" {
+    // tailscale.Serve.Register returns "" — the FQDN is known at startup.
+    s.URL = fmt.Sprintf("https://%s:%d", m.tsFQDN, s.Port)
+}
+```
+
+Also call `Deregister` in `Stop()`, after removing the session from the map:
+
+```go
+// In Manager.Stop(), after reg.factory.Stop(s.PID):
+m.registrar.Deregister(s.Port)
+```
+
+### Step 4 — Resolve the Tailscale FQDN at startup
+
+The FQDN is obtained once in `server.go` before constructing the manager. Add a helper to `internal/tailscale/serve.go`:
+
+```go
+// FQDN returns the machine's Tailscale MagicDNS name (e.g. "dev-mac.tail1234.ts.net").
+// Returns empty string if the tailscale binary cannot be called or the machine
+// is not connected.
+func (s *Serve) FQDN() string {
+    out, err := exec.Command(s.Binary, "status", "--json").Output()
+    if err != nil {
+        return ""
+    }
+    var status struct {
+        Self struct {
+            DNSName string `json:"DNSName"`
+        } `json:"Self"`
+    }
+    if err := json.Unmarshal(out, &status); err != nil {
+        return ""
+    }
+    // DNSName has a trailing dot — trim it.
+    return strings.TrimSuffix(status.Self.DNSName, ".")
+}
+```
+
+This requires adding `"encoding/json"` and `"strings"` to the imports in `serve.go`.
+
+### Step 5 — Wire it all together in `internal/server/server.go`
+
+Now that `NewManager` accepts a `Registrar` and `tsFQDN`, update `Start()`:
 
 ```go
 import (
@@ -389,67 +511,236 @@ import (
 )
 
 func Start(cfg *config.Config) error {
+    stateDir, _ := os.UserHomeDir()
+    stateFile := filepath.Join(stateDir, ".local", "share", "workspace-portal", "sessions.json")
+
     var registrar session.Registrar
+    var tsFQDN string
     if cfg.Tailscale.Enabled {
-        registrar = &tailscale.Serve{Binary: cfg.Tailscale.Binary}
+        ts := &tailscale.Serve{Binary: cfg.Tailscale.Binary}
+        registrar = ts
+        tsFQDN = ts.FQDN()
     } else {
         registrar = &session.NoopRegistrar{}
     }
-    // pass registrar to the session manager...
+
+    manager := session.NewManager(
+        stateFile,
+        registrar,
+        tsFQDN,
+        session.Register(
+            session.SessionTypeOpenCode,
+            &session.OCSessionFactory{Binary: cfg.OC.Binary, Flags: cfg.OC.Flags},
+            cfg.OC.PortRange,
+        ),
+        session.Register(
+            session.SessionTypeVSCode,
+            &session.VSCodeSessionFactory{Binary: cfg.VSCode.Binary, Password: cfg.Secret("vscode-password")},
+            cfg.VSCode.PortRange,
+        ),
+    )
+
+    srv := New(cfg, manager)
+
+    addr := fmt.Sprintf(":%d", cfg.PortalPort)
+    log.Printf("listening on %s", addr)
+
+    return http.ListenAndServe(addr, srv)
 }
 ```
 
-When `tailscale.enabled: false` in `config.yaml`, `NoopRegistrar` is used — `Register` and `Deregister` are no-ops. Sessions are still assigned ports and started; the session URL in the UI is `http://localhost:{port}` instead of an HTTPS tailnet URL.
-
-### How the session manager uses the registrar
-
-In `internal/session/manager.go`, after a session becomes healthy:
-
-```go
-// After health check passes:
-url, err := m.registrar.Register(sess.Port)
-if err != nil {
-    log.Printf("tailscale register port %d: %v", sess.Port, err)
-    // Non-fatal — session is still usable at localhost
-} else if url != "" {
-    sess.URL = url
-}
-// If url is empty (tailscale registered but didn't return a URL), construct it:
-if sess.URL == "" && m.cfg.Tailscale.Enabled {
-    status, _ := tailscaleStatus()  // or store the FQDN at startup
-    sess.URL = fmt.Sprintf("https://%s:%d", status.Self.FQDN, sess.Port)
-}
-```
+When `tailscale.enabled: false`, `NoopRegistrar` is used and `tsFQDN` is empty — `Register` and `Deregister` are no-ops and session URLs remain `http://localhost:{port}`.
 
 ### Testing without Tailscale installed
 
-The `Registrar` interface means you can test the session manager with a mock:
+There are two layers to test: the session manager (which uses the `Registrar` interface) and the `internal/tailscale` package itself (which shells out to the binary).
+
+#### Update existing `NewManager` calls in `manager_test.go`
+
+Adding `registrar` and `tsFQDN` to `NewManager`'s signature is a breaking change — every existing call site must be updated. In `manager_test.go`, the existing tests don't exercise Tailscale behaviour, so pass `nil` and `""` as neutral values. The `newTestManager` helper and the two direct `NewManager` calls in `TestStateFile_RoundTrip` all need updating:
 
 ```go
-type MockRegistrar struct {
-    RegisteredPorts []int
+// newTestManager
+return NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, factory, pr))
+
+// TestStateFile_RoundTrip
+m1 := NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, factory, pr))
+m2 := NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, factory, pr))
+```
+
+`nil` would compile but causes a nil pointer panic — `Manager.Start` calls `m.registrar.Register(...)` unconditionally. `&NoopRegistrar{}` is the correct neutral value: `Register` and `Deregister` are no-ops, so existing tests are unaffected.
+
+#### Unit testing the session manager with a mock registrar
+
+Because `Manager` depends on the `Registrar` interface rather than `tailscale.Serve` directly, you can inject a mock in tests without Tailscale installed at all.
+
+Create a new file `internal/session/registrar_test.go`. Using `package session_test` (the black-box variant) keeps it isolated from the internal `package session` tests in `manager_test.go` — no package declaration conflict, and no need to touch the existing test file.
+
+```go
+package session_test
+
+import (
+    "fmt"
+    "testing"
+
+    "workspace-portal/internal/portrange"
+    "workspace-portal/internal/session"
+)
+
+type mockRegistrar struct {
+    registered   []int
+    deregistered []int
 }
 
-func (m *MockRegistrar) Register(port int) (string, error) {
-    m.RegisteredPorts = append(m.RegisteredPorts, port)
+func (m *mockRegistrar) Register(port int) (string, error) {
+    m.registered = append(m.registered, port)
     return fmt.Sprintf("https://mock.ts.net:%d", port), nil
 }
 
-func (m *MockRegistrar) Deregister(port int) error {
+func (m *mockRegistrar) Deregister(port int) error {
+    m.deregistered = append(m.deregistered, port)
     return nil
+}
+
+// noopFactory is a SessionFactory that returns a fixed PID without exec'ing anything.
+type noopFactory struct{}
+
+func (f *noopFactory) Start(dir string, port int) (int, error) { return 1, nil }
+func (f *noopFactory) Stop(pid int) error                      { return nil }
+func (f *noopFactory) HealthURL(port int) string               { return "" }
+
+func TestManagerRegistersPortOnStart(t *testing.T) {
+    registrar := &mockRegistrar{}
+    mgr := session.NewManager(
+        t.TempDir()+"/sessions.json",
+        registrar,
+        "mock.ts.net",
+        session.Register(
+            session.SessionTypeOpenCode,
+            &noopFactory{},
+            portrange.PortRange{9100, 9199},
+        ),
+    )
+
+    s, err := mgr.Start(session.SessionTypeOpenCode, t.TempDir())
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    if len(registrar.registered) != 1 || registrar.registered[0] != s.Port {
+        t.Errorf("expected port %d to be registered, got %v", s.Port, registrar.registered)
+    }
+    if s.URL != fmt.Sprintf("https://mock.ts.net:%d", s.Port) {
+        t.Errorf("unexpected session URL: %s", s.URL)
+    }
+}
+
+func TestManagerDeregistersPortOnStop(t *testing.T) {
+    registrar := &mockRegistrar{}
+    mgr := session.NewManager(
+        t.TempDir()+"/sessions.json",
+        registrar,
+        "mock.ts.net",
+        session.Register(
+            session.SessionTypeOpenCode,
+            &noopFactory{},
+            portrange.PortRange{9100, 9199},
+        ),
+    )
+
+    s, _ := mgr.Start(session.SessionTypeOpenCode, t.TempDir())
+    mgr.Stop(s.ID)
+
+    if len(registrar.deregistered) != 1 || registrar.deregistered[0] != s.Port {
+        t.Errorf("expected port %d to be deregistered, got %v", s.Port, registrar.deregistered)
+    }
 }
 ```
 
-For integration tests of the `internal/tailscale` package itself, write a fake `tailscale` shell script to `$PATH`:
+Go allows both `package session` and `package session_test` files to coexist in the same directory — the compiler treats them as separate test binaries. `manager_test.go` stays untouched as `package session`; `registrar_test.go` uses `package session_test` and accesses only exported identifiers. The `noopFactory` here mirrors the `fakeFactory` in `manager_test.go` but is redeclared locally since it cannot cross package boundaries.
+
+Run the tests:
+
+```bash
+go test ./internal/session/...
+```
+
+#### Integration testing `internal/tailscale` with a fake binary
+
+To test that `Serve.Register` and `Serve.Deregister` call the CLI with the right arguments, replace the `tailscale` binary with a shell script during the test.
+
+**Create the fake binary** at `internal/tailscale/testdata/tailscale`:
 
 ```bash
 #!/usr/bin/env bash
-# test/fakes/tailscale
-echo "https://fake-host.ts.net:$5"
+# Fake tailscale binary — records arguments and exits cleanly.
+# Used by integration tests in the internal/tailscale package.
+echo "fake-tailscale called with: $@"
 exit 0
 ```
 
-Then in the test, set `PATH` to include the directory containing the fake binary.
+Make it executable:
+
+```bash
+chmod +x internal/tailscale/testdata/tailscale
+```
+
+Go's test tooling ignores `testdata/` directories when building — the script will never be compiled, only executed by the test.
+
+**Create `internal/tailscale/serve_test.go`** with a helper that prepends `testdata/` to `PATH` before each test, so `exec.Command("tailscale", ...)` resolves to the fake script rather than any real installation:
+
+```go
+package tailscale_test
+
+import (
+    "os"
+    "path/filepath"
+    "runtime"
+    "testing"
+
+    "workspace-portal/internal/tailscale"
+)
+
+func withFakeBinary(t *testing.T) string {
+    t.Helper()
+    _, file, _, _ := runtime.Caller(0)
+    testdata := filepath.Join(filepath.Dir(file), "testdata")
+    orig := os.Getenv("PATH")
+    os.Setenv("PATH", testdata+":"+orig)
+    t.Cleanup(func() { os.Setenv("PATH", orig) })
+    return "tailscale" // the binary name — resolved via the updated PATH
+}
+
+func TestServeRegister(t *testing.T) {
+    binary := withFakeBinary(t)
+    s := &tailscale.Serve{Binary: binary}
+
+    url, err := s.Register(4101)
+    if err != nil {
+        t.Fatalf("Register returned error: %v", err)
+    }
+    if url != "" {
+        t.Errorf("expected empty URL, got %q", url)
+    }
+}
+
+func TestServeDeregister(t *testing.T) {
+    binary := withFakeBinary(t)
+    s := &tailscale.Serve{Binary: binary}
+
+    if err := s.Deregister(4101); err != nil {
+        t.Fatalf("Deregister returned error: %v", err)
+    }
+}
+```
+
+Run the integration tests:
+
+```bash
+go test ./internal/tailscale/...
+```
+
+Both test suites pass with no Tailscale installation required.
 
 ---
 
