@@ -40,7 +40,7 @@ The courses are designed to be read and coded in order. Each course begins where
 
 ## Reference
 
-- [PRD — Product Requirements Document](./00-prd.md) — full specification: user stories, module design, config schema, SSE events, testing decisions
+- [PRD — Product Requirements Document](../00-prd.md) — full specification: user stories, module design, config schema, SSE events, testing decisions
 - [Go standard library](https://pkg.go.dev/std)
 - [HTMX documentation](https://htmx.org/docs/)
 - [launchd reference](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
