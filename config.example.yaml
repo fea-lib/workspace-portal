@@ -51,6 +51,18 @@ vscode:
   # Env: PORTAL_VSCODE_PORT_RANGE
   port_range: [4200, 4299]
 
+# ─── Tailscale ────────────────────────────────────────────────────────────────
+
+# Enable to expose sessions over your Tailnet via `tailscale serve`.
+# When enabled, session URLs use the machine's MagicDNS name and opencode
+# sessions are started with the correct --cors origin automatically.
+# Use the absolute path to the tailscale binary to avoid PATH issues when
+# running under launchd or other process supervisors.
+# Env: PORTAL_TAILSCALE_ENABLED, PORTAL_TAILSCALE_BINARY
+tailscale:
+  enabled: false
+  binary: /usr/local/bin/tailscale
+
 # ─── Filesystem ───────────────────────────────────────────────────────────────
 
 fs:

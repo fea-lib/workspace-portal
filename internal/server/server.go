@@ -63,13 +63,18 @@ func Start(cfg *config.Config) error {
 		tailscalRegistrar = &session.NoopRegistrar{}
 	}
 
+	corsOrigin := ""
+	if tsFQDN != "" {
+		corsOrigin = fmt.Sprintf("https://%s:%d", tsFQDN, cfg.PortalPort)
+	}
+
 	manager := session.NewManager(
 		stateFile,
 		tailscalRegistrar,
 		tsFQDN,
 		session.Register(
 			session.SessionTypeOpenCode,
-			&session.OCSessionFactory{Binary: cfg.OC.Binary, Flags: cfg.OC.Flags},
+			&session.OCSessionFactory{Binary: cfg.OC.Binary, Flags: cfg.OC.Flags, CORSOrigin: corsOrigin},
 			cfg.OC.PortRange,
 		),
 		session.Register(
@@ -81,7 +86,9 @@ func Start(cfg *config.Config) error {
 
 	srv := New(cfg, manager)
 
-	addr := fmt.Sprintf(":%d", cfg.PortalPort)
+	// Bind only on loopback so tailscale serve can bind the same port number
+	// on the Tailscale interface without a conflict.
+	addr := fmt.Sprintf("127.0.0.1:%d", cfg.PortalPort)
 	log.Printf("listening on %s", addr)
 
 	return http.ListenAndServe(addr, srv)
