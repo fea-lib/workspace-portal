@@ -38,8 +38,16 @@ func (h *handler) index(w http.ResponseWriter, r *http.Request) {
 		rows[i] = treeRowData{DirEntry: e}
 	}
 
+	rootRow := treeRowData{DirEntry: fsmod.DirEntry{
+		Path:        ".",
+		Name:        filepath.Base(h.cfg.WorkspacesRoot),
+		IsGit:       fsmod.IsGitRepo(h.cfg.WorkspacesRoot),
+		HasChildren: false,
+	}}
+
 	data := pageData{
 		Root:        h.cfg.WorkspacesRoot,
+		RootRow:     rootRow,
 		RootEntries: rows,
 		Sessions:    toSessionRows(h.manager.List()),
 	}

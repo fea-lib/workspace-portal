@@ -14,6 +14,7 @@ Currently, the workspace portal renders OpenCode and VS Code launch buttons for 
 6. The root row is visually distinguishable from regular subdirectory rows (e.g. via a `root` CSS class).
 7. All existing subdirectory rows and their buttons are unaffected.
 8. Clicking either button on the root row follows the same session-start flow as subdirectory buttons (HTMX `POST /sessions/start`, response updates `#sessions`).
+9. After the implementation is merged, the running launchd service is updated with the new binary and restarted without manual intervention.
 
 ## Implementation Plan
 
@@ -41,3 +42,15 @@ No changes required. The existing `DirEntry` struct is sufficient to represent t
 
 ### 5. CSS (inline in `layout.html`)
 - Add a `.root-row .tree-name` rule to visually distinguish the root row (e.g. font-weight, color, or a separator).
+
+### 6. Deploy and restart
+- Run `make deploy` to build the binary and copy it to `/usr/local/bin/portal`.
+- Restart the launchd service:
+  ```bash
+  launchctl unload ~/Library/LaunchAgents/com.workspace-portal.plist
+  launchctl load -w ~/Library/LaunchAgents/com.workspace-portal.plist
+  ```
+- Verify the service is running:
+  ```bash
+  launchctl list | grep workspace-portal
+  ```

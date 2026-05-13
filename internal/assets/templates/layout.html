@@ -225,6 +225,14 @@
         font-family: monospace;
         word-break: break-all;
       }
+      /* Root row */
+      .root-row .tree-name {
+        font-weight: 600;
+        color: #e2e8f0;
+      }
+      .root-row {
+        border-bottom: 2px solid #2d3748;
+      }
     </style>
   </head>
   <body hx-ext="sse" sse-connect="/events">
@@ -236,6 +244,34 @@
     <main>
       <h2>Directories</h2>
       <ul class="tree" id="tree-root">
+        <li class="tree-item root-row" id="item-root">
+          <div class="tree-row">
+            <span class="tree-icon" style="color: #2d3748">—</span>
+            <span class="tree-name{{if .RootRow.IsGit}} git{{end}}">{{.RootRow.Name}}</span>
+            <div class="tree-actions">
+              <button
+                class="btn btn-oc"
+                hx-post="/sessions/start"
+                hx-vals='{"type":"opencode","dir":"{{.RootRow.Path}}"}'
+                hx-target="#sessions"
+                hx-swap="innerHTML"
+                hx-indicator="#sessions-indicator"
+              >
+                OpenCode
+              </button>
+              <button
+                class="btn btn-vs"
+                hx-post="/sessions/start"
+                hx-vals='{"type":"vscode","dir":"{{.RootRow.Path}}"}'
+                hx-target="#sessions"
+                hx-swap="innerHTML"
+                hx-indicator="#sessions-indicator"
+              >
+                VS
+              </button>
+            </div>
+          </div>
+        </li>
         {{template "tree-children.html" .RootEntries}}
       </ul>
 

@@ -12,6 +12,7 @@ import (
 // pageData is passed to layout.html for the initial full-page render.
 type pageData struct {
 	Root        string // workspaces root path (display only)
+	RootRow     treeRowData
 	RootEntries []treeRowData
 	Sessions    []sessionRowData
 }

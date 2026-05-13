@@ -129,6 +129,15 @@ func loadGitignores(path, root string) []*gitignore.GitIgnore {
 	return matchers
 }
 
+// IsGitRepo returns true if the directory contains a git repository.
+// Handles three layouts:
+//   - standard:  .git/ is a directory
+//   - worktree:  .git is a file
+//   - bare repo: .bare/HEAD exists
+func IsGitRepo(path string) bool {
+	return isGitRepo(path)
+}
+
 // isGitRepo returns true if the directory contains a git repository.
 // Handles three layouts:
 //   - standard:  .git/ is a directory
