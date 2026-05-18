@@ -35,6 +35,8 @@ func (r *OCSessionFactory) Start(dir string, port int) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("starting opencode: %w", err)
 	}
 
+	attachCaffeinate(cmd.Process.Pid)
+
 	return cmd, nil
 }
 

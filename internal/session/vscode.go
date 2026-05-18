@@ -25,6 +25,8 @@ func (r *VSCodeSessionFactory) Start(dir string, port int) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("starting code-server: %w", err)
 	}
 
+	attachCaffeinate(cmd.Process.Pid)
+
 	return cmd, nil
 }
 

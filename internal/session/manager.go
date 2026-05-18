@@ -159,6 +159,9 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 	m.mu.Unlock()
 	m.saveState()
 
+	// Emit the started event immediately so subscribers see session creation.
+	m.events <- Event{Type: EventTypeStarted, Session: s}
+
 	// Reap the process when it exits so it doesn't become a zombie and
 	// so we can detect exit immediately (Signal(0) is unreliable for zombies).
 	go func() {

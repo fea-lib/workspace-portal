@@ -2,25 +2,45 @@ package session
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"workspace-portal/internal/portrange"
 )
 
-// fakeFactory implements SessionFactory without exec'ing anything.
+// fakeFactory implements SessionFactory without exec'ing a real editor.
+// It starts a "sleep 9999" subprocess to satisfy the cmd.Process.Pid requirement.
 type fakeFactory struct {
 	startErr error
 	stopErr  error
-	nextPID  int
 }
 
-func (f *fakeFactory) Start(dir string, port int) (int, error) {
-	return f.nextPID, f.startErr
+func (f *fakeFactory) Start(dir string, port int) (*exec.Cmd, error) {
+	if f.startErr != nil {
+		return nil, f.startErr
+	}
+	cmd := exec.Command("sleep", "9999")
+	if err := cmd.Start(); err != nil {
+		// Fallback: if sleep is not available, use a shell one-liner.
+		cmd = exec.Command("sh", "-c", "sleep 9999")
+		if err2 := cmd.Start(); err2 != nil {
+			return nil, err2
+		}
+	}
+	return cmd, nil
 }
 
 func (f *fakeFactory) Stop(pid int) error {
-	return f.stopErr
+	if f.stopErr != nil {
+		return f.stopErr
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return nil
+	}
+	proc.Kill() //nolint:errcheck
+	return nil
 }
 
 func (f *fakeFactory) HealthURL(port int) string {
@@ -36,7 +56,7 @@ func newTestManager(t *testing.T, factory *fakeFactory) *Manager {
 }
 
 func TestStart_UnknownType(t *testing.T) {
-	m := newTestManager(t, &fakeFactory{nextPID: 1})
+	m := newTestManager(t, &fakeFactory{})
 	_, err := m.Start("vscode", "/some/dir")
 	if err == nil {
 		t.Fatal("expected error for unknown session type, got nil")
@@ -44,19 +64,21 @@ func TestStart_UnknownType(t *testing.T) {
 }
 
 func TestStart_CreatesSession(t *testing.T) {
-	m := newTestManager(t, &fakeFactory{nextPID: 42})
+	m := newTestManager(t, &fakeFactory{})
 	s, err := m.Start(SessionTypeOpenCode, "/my/project")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	t.Cleanup(func() { m.Stop(s.ID) }) //nolint:errcheck
+
 	if s.Type != SessionTypeOpenCode {
 		t.Errorf("got type %q, want %q", s.Type, SessionTypeOpenCode)
 	}
 	if s.Dir != "/my/project" {
 		t.Errorf("got dir %q, want %q", s.Dir, "/my/project")
 	}
-	if s.PID != 42 {
-		t.Errorf("got pid %d, want 42", s.PID)
+	if s.PID <= 0 {
+		t.Errorf("got pid %d, want > 0", s.PID)
 	}
 	if s.Port < 40000 || s.Port > 40099 {
 		t.Errorf("port %d out of range", s.Port)
@@ -67,11 +89,13 @@ func TestStart_CreatesSession(t *testing.T) {
 }
 
 func TestStart_Idempotent(t *testing.T) {
-	m := newTestManager(t, &fakeFactory{nextPID: 1})
+	m := newTestManager(t, &fakeFactory{})
 	s1, err := m.Start(SessionTypeOpenCode, "/my/project")
 	if err != nil {
 		t.Fatalf("first start: %v", err)
 	}
+	t.Cleanup(func() { m.Stop(s1.ID) }) //nolint:errcheck
+
 	s2, err := m.Start(SessionTypeOpenCode, "/my/project")
 	if err != nil {
 		t.Fatalf("second start: %v", err)
@@ -82,7 +106,7 @@ func TestStart_Idempotent(t *testing.T) {
 }
 
 func TestStop_RemovesSession(t *testing.T) {
-	m := newTestManager(t, &fakeFactory{nextPID: 7})
+	m := newTestManager(t, &fakeFactory{})
 	s, _ := m.Start(SessionTypeOpenCode, "/my/project")
 
 	if err := m.Stop(s.ID); err != nil {
@@ -116,7 +140,7 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	stateFile := filepath.Join(dir, "sessions.json")
 	pr := portrange.PortRange{40000, 40099}
-	factory := &fakeFactory{nextPID: 99}
+	factory := &fakeFactory{}
 
 	// Create manager and start a session
 	m1 := NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, factory, pr))
@@ -124,6 +148,7 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
+	t.Cleanup(func() { m1.Stop(s.ID) }) //nolint:errcheck
 
 	// Confirm state file was written
 	if _, err := os.Stat(stateFile); err != nil {
@@ -131,19 +156,19 @@ func TestStateFile_RoundTrip(t *testing.T) {
 	}
 
 	// A second manager loading the same state file should see the session
-	// (loadState skips orphans, but PID 99 is likely not alive — so we only
+	// (loadState skips orphans, but the PID may or may not be alive — we only
 	// check that the JSON was written and is readable without crashing).
-	_ = s
 	m2 := NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, factory, pr))
 	_ = m2.List() // must not panic
 }
 
 func TestEvents_StartSendsEvent(t *testing.T) {
-	m := newTestManager(t, &fakeFactory{nextPID: 5})
+	m := newTestManager(t, &fakeFactory{})
 	s, err := m.Start(SessionTypeOpenCode, "/event/test")
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
+	t.Cleanup(func() { m.Stop(s.ID) }) //nolint:errcheck
 
 	select {
 	case ev := <-m.Events():
@@ -159,7 +184,7 @@ func TestEvents_StartSendsEvent(t *testing.T) {
 }
 
 func TestEvents_StopSendsEvent(t *testing.T) {
-	m := newTestManager(t, &fakeFactory{nextPID: 5})
+	m := newTestManager(t, &fakeFactory{})
 	s, _ := m.Start(SessionTypeOpenCode, "/event/stop")
 	<-m.Events() // drain the started event
 
