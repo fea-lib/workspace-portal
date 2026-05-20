@@ -18,36 +18,20 @@
     <span class="tree-name{{if .IsGit}} git{{end}}">{{.Name}}</span>
 
     <div class="tree-actions">
+      {{range .Actions}}
       <button
-        class="btn btn-oc"
+        class="btn btn-action btn-{{.Type}}"
         hx-post="/sessions/start"
-        hx-vals='{"type":"opencode","dir":"{{.Path}}"}'
+        hx-vals='{"type":"{{.Type}}","dir":"{{$.Path}}"}'
         hx-target="#sessions"
         hx-swap="innerHTML"
         hx-indicator="#sessions-indicator"
+        title="{{.Label}}"
+        aria-label="{{.Label}}"
       >
-        OpenCode
+        <img src="/static/{{.Icon}}" alt="" aria-hidden="true" />
       </button>
-      <button
-        class="btn btn-vs"
-        hx-post="/sessions/start"
-        hx-vals='{"type":"vscode","dir":"{{.Path}}"}'
-        hx-target="#sessions"
-        hx-swap="innerHTML"
-        hx-indicator="#sessions-indicator"
-      >
-        VS
-      </button>
-      <button
-        class="btn btn-docs"
-        hx-post="/sessions/start"
-        hx-vals='{"type":"docs","dir":"{{.Path}}"}'
-        hx-target="#sessions"
-        hx-swap="innerHTML"
-        hx-indicator="#sessions-indicator"
-      >
-        docs
-      </button>
+      {{end}}
     </div>
   </div>
 

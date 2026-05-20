@@ -79,8 +79,68 @@ func TestIndex(t *testing.T) {
 	if !strings.Contains(string(body), "Workspace Portal") {
 		t.Error("response does not contain expected heading")
 	}
-	if !strings.Contains(string(body), `"type":"docs"`) {
-		t.Error("response does not contain docs action button")
+	if !strings.Contains(string(body), `aria-label="Docs"`) {
+		t.Error("response does not contain docs icon action")
+	}
+	if strings.Index(string(body), "Running Sessions") > strings.Index(string(body), "Directories") {
+		t.Error("running sessions section should render before directories")
+	}
+}
+
+func TestSessionsRenderGroupedRelativePath(t *testing.T) {
+	root := t.TempDir()
+	mgr := &fakeManager{
+		sessions: []*session.Session{
+			{ID: "a", Type: session.SessionTypeOpenCode, Dir: root, Port: 9103, URL: "http://127.0.0.1:9103"},
+			{ID: "b", Type: session.SessionTypeVSCode, Dir: root + "/project-a", Port: 9203, URL: "http://127.0.0.1:9203"},
+		},
+	}
+	cfg := &config.Config{WorkspacesRoot: root, PortalPort: 4000}
+	srv := server.New(cfg, mgr)
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	if !strings.Contains(html, ">project-a<") {
+		t.Fatalf("expected relative path label in sessions html, got %s", html)
+	}
+	if !strings.Contains(html, "btn-stop-group") {
+		t.Fatalf("expected grouped stop control in sessions html, got %s", html)
+	}
+}
+
+func TestSessionsRenderStartingIconButton(t *testing.T) {
+	root := t.TempDir()
+	mgr := &fakeManager{
+		sessions: []*session.Session{
+			{ID: "a", Type: session.SessionTypeOpenCode, Dir: root + "/project-a", Port: 9103, URL: ""},
+		},
+	}
+	cfg := &config.Config{WorkspacesRoot: root, PortalPort: 4000}
+	srv := server.New(cfg, mgr)
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	if !strings.Contains(html, "btn-loading") {
+		t.Fatalf("expected loading button class in sessions html, got %s", html)
+	}
+	if !strings.Contains(html, "spinner") {
+		t.Fatalf("expected spinner in sessions html, got %s", html)
 	}
 }
 

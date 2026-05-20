@@ -1,4 +1,58 @@
-{{define "sessions.html"}} {{if .}} {{range .}} {{template "session-row.html"
-.}} {{end}} {{else}}
+{{define "sessions.html"}}
+{{if .}}
+  {{range .}}
+  <div class="session-group">
+    <div class="session-group-head">
+      <span class="session-group-dir">{{.DirLabel}}</span>
+      <div class="session-group-actions">
+        {{range .Actions}}
+          {{if .IsStarting}}
+          <button
+            class="btn btn-action btn-{{.Type}} btn-loading"
+            title="{{.Label}} starting..."
+            aria-label="{{.Label}} starting"
+            disabled
+          >
+            <img src="/static/{{.Icon}}" alt="" aria-hidden="true" />
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+          {{else}}
+          <a
+            class="btn btn-action btn-{{.Type}}"
+            href="{{.OpenURL}}"
+            target="_blank"
+            title="Open {{.Label}}"
+            aria-label="Open {{.Label}}"
+          >
+            <img src="/static/{{.Icon}}" alt="" aria-hidden="true" />
+          </a>
+          {{end}}
+        {{end}}
+
+        <details class="stop-menu">
+          <summary class="btn btn-stop-group" title="Stop session" aria-label="Stop session">
+            <img src="/static/stop.svg" alt="" aria-hidden="true" />
+          </summary>
+          <div class="stop-menu-items">
+            {{range .Actions}}
+            <button
+              class="stop-menu-item"
+              hx-post="/sessions/stop"
+              hx-vals='{"id":"{{.ID}}"}'
+              hx-target="#sessions"
+              hx-swap="innerHTML"
+              hx-confirm="{{.StopConfirm}}"
+            >
+              {{.StopLabel}}
+            </button>
+            {{end}}
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+  {{end}}
+{{else}}
 <p style="color: #4a5568; font-size: 0.875rem">No sessions running.</p>
-{{end}} {{end}}
+{{end}}
+{{end}}

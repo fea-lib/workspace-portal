@@ -116,6 +116,7 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        text-decoration: none;
       }
       /* Larger tap targets on touch devices */
       @media (pointer: coarse) {
@@ -125,77 +126,132 @@
           min-height: 44px;
         }
       }
-      .btn-oc {
-        background: #2b6cb0;
+      .btn-action {
+        width: 1.8rem;
+        height: 1.8rem;
+        padding: 0;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        background: rgba(255, 255, 255, 0.2);
+        position: relative;
+      }
+      .btn-action img {
+        width: 1rem;
+        height: 1rem;
+        display: block;
+      }
+      .btn-action:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+      .btn-stop-group {
+        background: rgba(255, 255, 255, 0.2);
         color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        list-style: none;
+        width: 1.8rem;
+        height: 1.8rem;
+        padding: 0;
       }
-      .btn-oc:hover {
-        background: #2c5282;
+      .btn-stop-group:hover {
+        background: rgba(255, 255, 255, 0.3);
       }
-      .btn-vs {
-        background: #553c9a;
-        color: #fff;
+      .btn-stop-group img {
+        width: 0.95rem;
+        height: 0.95rem;
+        display: block;
       }
-      .btn-vs:hover {
-        background: #44337a;
+      .btn-loading {
+        opacity: 0.7;
+        cursor: wait;
       }
-      .btn-docs {
-        background: #2f855a;
-        color: #fff;
+      .btn-loading img {
+        opacity: 0.35;
       }
-      .btn-docs:hover {
-        background: #276749;
+      .spinner {
+        width: 0.6rem;
+        height: 0.6rem;
+        border: 2px solid rgba(255, 255, 255, 0.25);
+        border-top-color: #fff;
+        border-radius: 50%;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        animation: spin-centered 0.8s linear infinite;
       }
-      .btn-stop {
-        background: #742a2a;
-        color: #fff;
+      @keyframes spin-centered {
+        to {
+          transform: translate(-50%, -50%) rotate(360deg);
+        }
       }
-      .btn-stop:hover {
-        background: #9b2c2c;
-      }
-      .btn-open {
-        background: #276749;
-        color: #fff;
-      }
-      .btn-open:hover {
-        background: #22543d;
-      }
+
       /* Sessions */
       #sessions {
-        margin-top: 1rem;
+        margin: 0.5rem 0 1rem;
       }
-      .session-row {
+      .session-group {
+        border-bottom: 1px solid #1a202c;
+        padding: 0.5rem 0;
+      }
+      .session-group-head {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 0.5rem;
-        padding: 0.5rem 0;
-        border-bottom: 1px solid #1a202c;
-        font-size: 0.875rem;
       }
-      .session-type {
-        font-size: 0.7rem;
-        background: #2d3748;
-        padding: 0.1rem 0.35rem;
-        border-radius: 3px;
-        font-family: monospace;
-      }
-      .session-dir {
+      .session-group-dir {
         flex: 1;
+        min-width: 0;
         font-family: monospace;
         color: #a0aec0;
+        font-size: 0.875rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
-      .session-port {
-        font-size: 0.75rem;
-        color: #718096;
-        font-family: monospace;
+      .session-group-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-shrink: 0;
       }
-      .session-status-starting {
-        color: #d69e2e;
-        font-size: 0.75rem;
+      .stop-menu {
+        position: relative;
       }
-      .session-status-healthy {
-        color: #48bb78;
-        font-size: 0.75rem;
+      .stop-menu > summary {
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .stop-menu > summary::-webkit-details-marker {
+        display: none;
+      }
+      .stop-menu-items {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 0.25rem);
+        background: #111827;
+        border: 1px solid #2d3748;
+        border-radius: 6px;
+        min-width: 9.5rem;
+        z-index: 5;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+        padding: 0.25rem;
+      }
+      .stop-menu-item {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 0.35rem 0.45rem;
+        min-height: 2rem;
+        border: 0;
+        background: transparent;
+        color: #e2e8f0;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .stop-menu-item:hover {
+        background: #1f2937;
       }
       /* Loading indicator (shown while htmx request in flight) */
       .htmx-indicator {
@@ -240,6 +296,37 @@
       .root-row {
         border-bottom: 2px solid #2d3748;
       }
+
+      @media (max-width: 640px) {
+        .tree-row,
+        .session-group-head {
+          gap: 0.35rem;
+        }
+        .tree-name,
+        .session-group-dir {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .btn-action {
+          width: 2.75rem;
+          height: 2.75rem;
+        }
+        .btn-stop-group {
+          width: 2.75rem;
+          height: 2.75rem;
+        }
+        .btn-action img,
+        .btn-stop-group img {
+          width: 1.1rem;
+          height: 1.1rem;
+        }
+        .stop-menu-item {
+          padding: 0.6rem 0.7rem;
+          min-height: 2.75rem;
+          font-size: 0.95rem;
+        }
+      }
     </style>
   </head>
   <body hx-ext="sse" sse-connect="/events">
@@ -249,51 +336,8 @@
     </header>
 
     <main>
-      <h2>Directories</h2>
-      <ul class="tree" id="tree-root">
-        <li class="tree-item root-row" id="item-root">
-          <div class="tree-row">
-            <span class="tree-icon" style="color: #2d3748">—</span>
-            <span class="tree-name{{if .RootRow.IsGit}} git{{end}}">{{.RootRow.Name}}</span>
-            <div class="tree-actions">
-              <button
-                class="btn btn-oc"
-                hx-post="/sessions/start"
-                hx-vals='{"type":"opencode","dir":"{{.RootRow.Path}}"}'
-                hx-target="#sessions"
-                hx-swap="innerHTML"
-                hx-indicator="#sessions-indicator"
-              >
-                OpenCode
-              </button>
-              <button
-                class="btn btn-vs"
-                hx-post="/sessions/start"
-                hx-vals='{"type":"vscode","dir":"{{.RootRow.Path}}"}'
-                hx-target="#sessions"
-                hx-swap="innerHTML"
-                hx-indicator="#sessions-indicator"
-              >
-                VS
-              </button>
-              <button
-                class="btn btn-docs"
-                hx-post="/sessions/start"
-                hx-vals='{"type":"docs","dir":"{{.RootRow.Path}}"}'
-                hx-target="#sessions"
-                hx-swap="innerHTML"
-                hx-indicator="#sessions-indicator"
-              >
-                docs
-              </button>
-            </div>
-          </div>
-        </li>
-        {{template "tree-children.html" .RootEntries}}
-      </ul>
-
       <h2>Running Sessions</h2>
-      <span id="sessions-indicator" class="htmx-indicator" style="font-size:0.75rem; color:#718096; margin-bottom:0.25rem; display:none">Loading…</span>
+      <span id="sessions-indicator" class="htmx-indicator" style="font-size:0.75rem; color:#718096; margin-bottom:0.25rem; display:none">Loading...</span>
       <div
         id="sessions"
         hx-get="/sessions"
@@ -302,6 +346,33 @@
       >
         {{template "sessions.html" .Sessions}}
       </div>
+
+      <h2>Directories</h2>
+      <ul class="tree" id="tree-root">
+        <li class="tree-item root-row" id="item-root">
+          <div class="tree-row">
+            <span class="tree-icon" style="color: #2d3748">—</span>
+            <span class="tree-name{{if .RootRow.IsGit}} git{{end}}">{{.RootRow.Name}}</span>
+             <div class="tree-actions">
+               {{range .RootRow.Actions}}
+               <button
+                 class="btn btn-action btn-{{.Type}}"
+                 hx-post="/sessions/start"
+                 hx-vals='{"type":"{{.Type}}","dir":"{{$.RootRow.Path}}"}'
+                 hx-target="#sessions"
+                 hx-swap="innerHTML"
+                 hx-indicator="#sessions-indicator"
+                 title="{{.Label}}"
+                 aria-label="{{.Label}}"
+               >
+                 <img src="/static/{{.Icon}}" alt="" aria-hidden="true" />
+               </button>
+               {{end}}
+             </div>
+           </div>
+         </li>
+         {{template "tree-children.html" .RootEntries}}
+      </ul>
     </main>
 
     <script src="/static/htmx-2.0.8.min.js"></script>

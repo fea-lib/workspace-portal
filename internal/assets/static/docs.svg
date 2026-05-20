@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Artwork_16x16" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 16 16">
+  <!-- Generator: Adobe Illustrator 30.0.0, SVG Export Plug-In . SVG Version: 2.1.1 Build 123)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: #ffffff;
+        fill-opacity: 0.8;
+      }
+    </style>
+  </defs>
+  <path class="st0" d="M14.5,3h-4.5c-1.1045,0-2,.8952-2,1.9995,0-1.1043-.895-1.9995-2-1.9995h-1v3.5l-1-1-1,1v-3.5h-1.5c-.2761,0-.5.2238-.5.4999v8.9979c0,.2761.2239.4999.5.4999h4.5c.663,0,1.2429.3278,1.6143.8186.1853.2449.5886.245.7717,0,.3684-.4929.9513-.8187,1.614-.8187h4.5c.2762,0,.5-.2238.5-.4999V3.4999c0-.2761-.2238-.4999-.5-.4999Z"/>
+</svg>
