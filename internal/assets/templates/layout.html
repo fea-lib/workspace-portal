@@ -139,6 +139,13 @@
       .btn-vs:hover {
         background: #44337a;
       }
+      .btn-docs {
+        background: #2f855a;
+        color: #fff;
+      }
+      .btn-docs:hover {
+        background: #276749;
+      }
       .btn-stop {
         background: #742a2a;
         color: #fff;
@@ -268,6 +275,16 @@
                 hx-indicator="#sessions-indicator"
               >
                 VS
+              </button>
+              <button
+                class="btn btn-docs"
+                hx-post="/sessions/start"
+                hx-vals='{"type":"docs","dir":"{{.RootRow.Path}}"}'
+                hx-target="#sessions"
+                hx-swap="innerHTML"
+                hx-indicator="#sessions-indicator"
+              >
+                docs
               </button>
             </div>
           </div>

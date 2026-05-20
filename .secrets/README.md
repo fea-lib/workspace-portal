@@ -1,3 +1,7 @@
+---
+title: 'Secrets'
+---
+
 # Secrets
 
 Copy this directory to `.secrets/` alongside your `config.yaml`.

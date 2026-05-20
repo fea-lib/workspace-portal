@@ -13,6 +13,7 @@ type SessionType string
 const (
 	SessionTypeOpenCode SessionType = "opencode"
 	SessionTypeVSCode   SessionType = "vscode"
+	SessionTypeDocs     SessionType = "docs"
 )
 
 // Session holds the state of a running session.
@@ -26,7 +27,7 @@ type Session struct {
 	URL       string      `json:"url"` // set after health check passes
 }
 
-	// SessionFactory is implemented by each session type (OpenCode, VS Code).
+// SessionFactory is implemented by each session type (OpenCode, VS Code, Docs).
 // It is a configured factory — it captures everything that is fixed at startup
 // (binary path, flags, credentials) so that Start only needs what varies per
 // session (directory and port).

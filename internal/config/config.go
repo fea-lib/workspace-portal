@@ -19,6 +19,7 @@ type Config struct {
 	PortalPort     int       `yaml:"portal_port"      env:"PORTAL_PORT"`
 	SecretsDir     string    `yaml:"secrets_dir"`
 	OC             OCConfig  `yaml:"oc"               envPrefix:"PORTAL_OC_"`
+	Docs           DocsConfig `yaml:"docs"            envPrefix:"PORTAL_DOCS_"`
 	Tailscale      TSConfig  `yaml:"tailscale"        envPrefix:"PORTAL_TAILSCALE_"`
 	VSCode         VSCConfig `yaml:"vscode"           envPrefix:"PORTAL_VSCODE_"`
 }
@@ -32,6 +33,13 @@ type OCConfig struct {
 type TSConfig struct {
 	Enabled bool   `yaml:"enabled" env:"ENABLED"`
 	Binary  string `yaml:"binary"  env:"BINARY"`
+}
+
+type DocsConfig struct {
+	Binary               string              `yaml:"binary"                 env:"BINARY"`
+	Package              string              `yaml:"package"                env:"PACKAGE"`
+	PortRange            portrange.PortRange `yaml:"port_range"             env:"PORT_RANGE"`
+	HealthStartupTimeout int                 `yaml:"health_startup_timeout" env:"HEALTH_STARTUP_TIMEOUT"`
 }
 
 type VSCConfig struct {
@@ -48,6 +56,12 @@ func defaults() *Config {
 			Binary:    "opencode",
 			PortRange: portrange.PortRange{4100, 4199},
 			Flags:     []string{"--mdns"},
+		},
+		Docs: DocsConfig{
+			Binary:               "npx",
+			Package:              "fea-docs@latest",
+			PortRange:            portrange.PortRange{4300, 4399},
+			HealthStartupTimeout: 120,
 		},
 		Tailscale: TSConfig{
 			Binary: "tailscale",
@@ -109,7 +123,26 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("workspaces_root is required (set in config.yaml or PORTAL_WORKSPACES_ROOT)")
 	}
 
+	if err := validateDocsPackage(cfg.Docs.Package); err != nil {
+		return nil, err
+	}
+	if cfg.Docs.HealthStartupTimeout <= 0 {
+		return nil, fmt.Errorf("docs.health_startup_timeout must be > 0 seconds")
+	}
+
 	return cfg, nil
+}
+
+func validateDocsPackage(pkg string) error {
+	if pkg == "" {
+		return fmt.Errorf("docs.package is required (example: fea-docs@latest or fea-docs@1.2.1)")
+	}
+	sep := strings.LastIndex(pkg, "@")
+	if sep <= 0 || sep == len(pkg)-1 {
+		return fmt.Errorf("docs.package must include a tag or version (example: fea-docs@latest or fea-docs@1.2.1)")
+	}
+
+	return nil
 }
 
 // Secret reads a secret value by name. Resolution order:

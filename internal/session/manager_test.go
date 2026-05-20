@@ -105,6 +105,43 @@ func TestStart_Idempotent(t *testing.T) {
 	}
 }
 
+func TestStart_IdempotentByTypeAndDir(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "sessions.json")
+	pr := portrange.PortRange{40000, 40099}
+	factory := &fakeFactory{}
+	m := NewManager(
+		stateFile,
+		&NoopRegistrar{},
+		"",
+		Register(SessionTypeOpenCode, factory, pr),
+		Register(SessionTypeDocs, factory, pr),
+	)
+
+	opencode, err := m.Start(SessionTypeOpenCode, "/my/project")
+	if err != nil {
+		t.Fatalf("start opencode: %v", err)
+	}
+	t.Cleanup(func() { m.Stop(opencode.ID) }) //nolint:errcheck
+
+	docs, err := m.Start(SessionTypeDocs, "/my/project")
+	if err != nil {
+		t.Fatalf("start docs: %v", err)
+	}
+	t.Cleanup(func() { m.Stop(docs.ID) }) //nolint:errcheck
+
+	if opencode.ID == docs.ID {
+		t.Fatal("expected different sessions for same dir but different type")
+	}
+
+	docs2, err := m.Start(SessionTypeDocs, "/my/project")
+	if err != nil {
+		t.Fatalf("second docs start: %v", err)
+	}
+	if docs.ID != docs2.ID {
+		t.Errorf("expected docs session dedupe by type+dir; got %q vs %q", docs.ID, docs2.ID)
+	}
+}
+
 func TestStop_RemovesSession(t *testing.T) {
 	m := newTestManager(t, &fakeFactory{})
 	s, _ := m.Start(SessionTypeOpenCode, "/my/project")

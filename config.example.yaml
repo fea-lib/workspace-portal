@@ -51,6 +51,27 @@ vscode:
   # Env: PORTAL_VSCODE_PORT_RANGE
   port_range: [4200, 4299]
 
+# ─── Docs (fea-docs via npx) ─────────────────────────────────────────────────
+
+docs:
+  # Command used to launch fea-docs. Usually npx.
+  # Env: PORTAL_DOCS_BINARY
+  binary: npx
+
+  # npm package spec for fea-docs.
+  # Default tracks the latest published fea-docs release.
+  # Env: PORTAL_DOCS_PACKAGE
+  package: fea-docs@latest
+
+  # Port range to assign to docs sessions.
+  # Env: PORTAL_DOCS_PORT_RANGE
+  port_range: [4300, 4399]
+
+  # Maximum seconds to wait for docs session health before marking failed.
+  # First-run fea-docs startup may need extra time to prepare runtime.
+  # Env: PORTAL_DOCS_HEALTH_STARTUP_TIMEOUT
+  health_startup_timeout: 120
+
 # ─── Tailscale ────────────────────────────────────────────────────────────────
 
 # Enable to expose sessions over your Tailnet via `tailscale serve`.

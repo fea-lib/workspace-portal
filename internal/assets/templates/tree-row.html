@@ -38,6 +38,16 @@
       >
         VS
       </button>
+      <button
+        class="btn btn-docs"
+        hx-post="/sessions/start"
+        hx-vals='{"type":"docs","dir":"{{.Path}}"}'
+        hx-target="#sessions"
+        hx-swap="innerHTML"
+        hx-indicator="#sessions-indicator"
+      >
+        docs
+      </button>
     </div>
   </div>
 

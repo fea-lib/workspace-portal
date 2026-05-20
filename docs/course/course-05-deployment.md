@@ -359,7 +359,7 @@ A self-hosted, mobile-friendly portal for launching and managing
 [OpenCode](https://opencode.ai) and [code-server](https://github.com/coder/code-server)
 sessions across your workspaces directory.
 
-Built with Go + HTMX. Single binary. No Node.js required.
+Built with Go + HTMX. Single binary.
 
 ---
 
@@ -369,6 +369,7 @@ Built with Go + HTMX. Single binary. No Node.js required.
 - Go 1.22+ (to build from source) or download a pre-built binary from [GitHub Releases](https://github.com/yourusername/workspace-portal/releases)
 - [opencode](https://opencode.ai) installed and on `PATH`
 - [code-server](https://github.com/coder/code-server) installed and on `PATH`
+- Node.js 18+ and `npx` on `PATH` (for docs sessions via fea-docs)
 
 ---
 
@@ -439,6 +440,10 @@ lsof -iTCP -sTCP:LISTEN -P | grep 410
 ```
 
 **Binary not found** — ensure `opencode` and `code-server` are on the `PATH` defined in the launchd plist (`/opt/homebrew/bin` is included by default for Homebrew users).
+
+**Docs session won't start** — ensure `node` and `npx` are available in the launchd PATH, and that `docs.package` points to a valid package spec (default: `fea-docs@latest`).
+
+**Docs files changed unexpectedly** — `fea-docs` may auto-inject missing frontmatter titles into scanned `.md/.mdx` files.
 
 **Sessions not persisting across restarts** — state is written to `~/.local/share/workspace-portal/sessions.json`. If the directory is not writable, session state is lost. The portal logs an error at startup.
 ````

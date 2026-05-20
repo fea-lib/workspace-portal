@@ -33,6 +33,15 @@ func TestLoadFromFile(t *testing.T) {
 	if cfg.OC.Binary != "opencode" {
 		t.Errorf("expected default OpenCode binary, got %q", cfg.OC.Binary)
 	}
+	if cfg.Docs.Binary != "npx" {
+		t.Errorf("expected default Docs binary, got %q", cfg.Docs.Binary)
+	}
+	if cfg.Docs.Package == "" {
+		t.Error("expected default Docs package to be set")
+	}
+	if cfg.Docs.HealthStartupTimeout != 120 {
+		t.Errorf("expected default docs health timeout 120, got %d", cfg.Docs.HealthStartupTimeout)
+	}
 }
 
 func TestEnvOverride(t *testing.T) {
@@ -42,10 +51,41 @@ func TestEnvOverride(t *testing.T) {
 	defer os.Remove(f.Name())
 
 	t.Setenv("PORTAL_PORT", "5555")
+	t.Setenv("PORTAL_DOCS_PACKAGE", "fea-docs@latest")
 
 	cfg, _ := Load(f.Name())
 	if cfg.PortalPort != 5555 {
 		t.Errorf("env override failed, got %d", cfg.PortalPort)
+	}
+	if cfg.Docs.Package != "fea-docs@latest" {
+		t.Errorf("docs package env override failed, got %q", cfg.Docs.Package)
+	}
+}
+
+func TestDocsPackageAllowsLatest(t *testing.T) {
+	f, _ := os.CreateTemp("", "config*.yaml")
+	f.WriteString("workspaces_root: /tmp/workspaces\ndocs:\n  package: fea-docs@latest\n")
+	f.Close()
+	defer os.Remove(f.Name())
+
+	cfg, err := Load(f.Name())
+	if err != nil {
+		t.Fatalf("unexpected error for docs.package using @latest: %v", err)
+	}
+	if cfg.Docs.Package != "fea-docs@latest" {
+		t.Fatalf("docs package mismatch: got %q", cfg.Docs.Package)
+	}
+}
+
+func TestDocsHealthStartupTimeoutMustBePositive(t *testing.T) {
+	f, _ := os.CreateTemp("", "config*.yaml")
+	f.WriteString("workspaces_root: /tmp/workspaces\ndocs:\n  health_startup_timeout: 0\n")
+	f.Close()
+	defer os.Remove(f.Name())
+
+	_, err := Load(f.Name())
+	if err == nil {
+		t.Fatal("expected error for docs.health_startup_timeout <= 0")
 	}
 }
 

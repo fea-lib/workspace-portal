@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"workspace-portal/internal/assets"
 	"workspace-portal/internal/config"
@@ -81,6 +82,15 @@ func Start(cfg *config.Config) error {
 			session.SessionTypeVSCode,
 			&session.VSCodeSessionFactory{Binary: cfg.VSCode.Binary, Password: cfg.Secret("vscode-password")},
 			cfg.VSCode.PortRange,
+		),
+		session.Register(
+			session.SessionTypeDocs,
+			&session.DocsSessionFactory{
+				Binary:         cfg.Docs.Binary,
+				Package:        cfg.Docs.Package,
+				StartupTimeout: time.Duration(cfg.Docs.HealthStartupTimeout) * time.Second,
+			},
+			cfg.Docs.PortRange,
 		),
 	)
 

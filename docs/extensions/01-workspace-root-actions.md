@@ -1,3 +1,7 @@
+---
+title: 'Extension: Workspace Root Actions'
+---
+
 # Extension: Workspace Root Actions
 
 ## Description

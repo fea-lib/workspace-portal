@@ -79,6 +79,9 @@ func TestIndex(t *testing.T) {
 	if !strings.Contains(string(body), "Workspace Portal") {
 		t.Error("response does not contain expected heading")
 	}
+	if !strings.Contains(string(body), `"type":"docs"`) {
+		t.Error("response does not contain docs action button")
+	}
 }
 
 func TestFsListPathTraversal(t *testing.T) {
@@ -114,6 +117,29 @@ func TestSessionsStart(t *testing.T) {
 	}
 	if mgr.started[0].Type != session.SessionTypeOpenCode {
 		t.Errorf("want type opencode, got %s", mgr.started[0].Type)
+	}
+}
+
+func TestSessionsStartDocs(t *testing.T) {
+	mgr := &fakeManager{}
+	ts := newTestServer(t, mgr)
+	defer ts.Close()
+
+	form := url.Values{"type": {"docs"}, "dir": {"docs-project"}}
+	resp, err := http.PostForm(ts.URL+"/sessions/start", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", resp.StatusCode)
+	}
+	if len(mgr.started) != 1 {
+		t.Fatalf("want 1 session started, got %d", len(mgr.started))
+	}
+	if mgr.started[0].Type != session.SessionTypeDocs {
+		t.Errorf("want type docs, got %s", mgr.started[0].Type)
 	}
 }
 

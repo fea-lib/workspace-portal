@@ -19,6 +19,12 @@ import (
 	"workspace-portal/internal/portrange"
 )
 
+const defaultHealthTimeout = 30 * time.Second
+
+type healthTimeoutProvider interface {
+	HealthStartupTimeout() time.Duration
+}
+
 // registeredFactory pairs a SessionType, its SessionFactory, and its port range.
 // Keeping them together means the Manager stays fully abstract —
 // it never needs to name a concrete type.
@@ -173,7 +179,14 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 
 	// Health check + tailscale registration run in a goroutine — it blocks
 	// until the process responds, then updates s.URL and sends the "healthy" event.
-	go m.waitHealthy(s, reg.factory.HealthURL(port))
+	healthTimeout := defaultHealthTimeout
+	if p, ok := reg.factory.(healthTimeoutProvider); ok {
+		if t := p.HealthStartupTimeout(); t > 0 {
+			healthTimeout = t
+		}
+	}
+
+	go m.waitHealthy(s, reg.factory.HealthURL(port), healthTimeout)
 
 	return s, nil
 }
@@ -206,8 +219,8 @@ func (m *Manager) Stop(id string) error {
 // waitHealthy polls until the session responds, registers with tailscale,
 // then marks it healthy. It times out after 30 seconds to avoid leaking
 // goroutines for processes that fail to start.
-func (m *Manager) waitHealthy(s *Session, healthURL string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (m *Manager) waitHealthy(s *Session, healthURL string, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	ticker := time.NewTicker(time.Second)
