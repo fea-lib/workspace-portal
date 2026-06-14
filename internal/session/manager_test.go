@@ -1,10 +1,13 @@
 package session
 
 import (
+	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"workspace-portal/internal/portrange"
 )
@@ -236,3 +239,181 @@ func TestEvents_StopSendsEvent(t *testing.T) {
 		t.Error("no event sent after Stop()")
 	}
 }
+
+func TestStart_ReusesCachedPort(t *testing.T) {
+	m := newTestManager(t, &fakeFactory{})
+	s1, err := m.Start(SessionTypeOpenCode, "/cached/project")
+	if err != nil {
+		t.Fatalf("first start: %v", err)
+	}
+	port := s1.Port
+
+	if err := m.Stop(s1.ID); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+
+	s2, err := m.Start(SessionTypeOpenCode, "/cached/project")
+	if err != nil {
+		t.Fatalf("second start: %v", err)
+	}
+	t.Cleanup(func() { m.Stop(s2.ID) }) //nolint:errcheck
+
+	if s2.Port != port {
+		t.Errorf("expected same port %d after restart, got %d", port, s2.Port)
+	}
+}
+
+func TestStart_CachedPortOutOfRange(t *testing.T) {
+	m := newTestManager(t, &fakeFactory{})
+
+	// Inject a registry entry with a port outside the manager's range
+	m.registry.Set(registryKey(SessionTypeOpenCode, "/out-of-range"), &PortEntry{
+		Dir:         "/out-of-range",
+		Type:        SessionTypeOpenCode,
+		Port:        9999,
+		LastStarted: time.Now(),
+	})
+	m.registry.Save()
+
+	s, err := m.Start(SessionTypeOpenCode, "/out-of-range")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { m.Stop(s.ID) }) //nolint:errcheck
+
+	if s.Port < 40000 || s.Port > 40099 {
+		t.Errorf("port %d outside expected range 40000-40099", s.Port)
+	}
+	if s.Port == 9999 {
+		t.Error("should not have reused out-of-range cached port 9999")
+	}
+}
+
+func TestStart_CachedPortInUse(t *testing.T) {
+	m := newTestManager(t, &fakeFactory{})
+
+	// Occupy a port in the range
+	occupiedPort := 40050
+	ln, err := net.Listen("tcp", "127.0.0.1:40050")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	// Inject registry entry pointing to the occupied port
+	m.registry.Set(registryKey(SessionTypeOpenCode, "/occupied"), &PortEntry{
+		Dir:         "/occupied",
+		Type:        SessionTypeOpenCode,
+		Port:        occupiedPort,
+		LastStarted: time.Now(),
+	})
+	m.registry.Save()
+
+	s, err := m.Start(SessionTypeOpenCode, "/occupied")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { m.Stop(s.ID) }) //nolint:errcheck
+
+	if s.Port == occupiedPort {
+		t.Error("should not have reused occupied cached port")
+	}
+	if s.Port < 40000 || s.Port > 40099 {
+		t.Errorf("port %d outside expected range", s.Port)
+	}
+}
+
+func TestStart_StaleEntryPurged(t *testing.T) {
+	m := newTestManager(t, &fakeFactory{})
+
+	// Inject a stale entry (15 days old)
+	m.registry.Set(registryKey(SessionTypeOpenCode, "/stale"), &PortEntry{
+		Dir:         "/stale",
+		Type:        SessionTypeOpenCode,
+		Port:        40050,
+		LastStarted: time.Now().Add(-15 * 24 * time.Hour),
+	})
+	m.registry.Save()
+
+	// Start a session for a different dir in the same range
+	s, err := m.Start(SessionTypeOpenCode, "/active")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { m.Stop(s.ID) }) //nolint:errcheck
+
+	// The stale entry should have been purged
+	_, ok := m.registry.Get(registryKey(SessionTypeOpenCode, "/stale"))
+	if ok {
+		t.Error("stale entry was not purged during Start()")
+	}
+}
+
+func TestStart_FactoryFailure_DoesNotPersistRegistryEntry(t *testing.T) {
+	m := newTestManager(t, &fakeFactory{startErr: os.ErrNotExist})
+
+	key := registryKey(SessionTypeOpenCode, "/ephemeral")
+
+	// Sanity: no entry before Start
+	if _, ok := m.registry.Get(key); ok {
+		t.Fatal("unexpected registry entry before Start")
+	}
+
+	_, err := m.Start(SessionTypeOpenCode, "/ephemeral")
+	if err == nil {
+		t.Fatal("expected error from factory, got nil")
+	}
+
+	// The registry must NOT contain an entry after a failed Start
+	if _, ok := m.registry.Get(key); ok {
+		t.Error("registry entry persisted despite factory.Start() failure")
+	}
+}
+
+func TestStateFile_PopulatesRegistryOnStartup(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "sessions.json")
+	pr := portrange.PortRange{40000, 40099}
+
+	// Write a sessions.json with a live session (our own PID) directly,
+	// simulating a scenario where the registry was lost but state persists.
+	sessionPort := 40050
+	state := map[string]*Session{
+		"restored-session": {
+			ID:        "restored-session",
+			Type:      SessionTypeOpenCode,
+			Dir:       "/restored/project",
+			Port:      sessionPort,
+			PID:       os.Getpid(),
+			StartedAt: time.Now(),
+		},
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stateFile, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a new manager — it should load the state and reconcile.
+	// NOTE: no Stop cleanup needed — the session was loaded from state, not
+	// started via Start(). Using os.Getpid() means Stop() would kill our process.
+	m := NewManager(stateFile, &NoopRegistrar{}, "", Register(SessionTypeOpenCode, &fakeFactory{}, pr))
+
+	sessions := m.List()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 restored session, got %d", len(sessions))
+	}
+
+	key := registryKey(SessionTypeOpenCode, "/restored/project")
+	entry, ok := m.registry.Get(key)
+	if !ok {
+		t.Fatal("restored session has no registry entry after reconciliation")
+	}
+	if entry.Port != sessionPort {
+		t.Errorf("registry port %d, want %d", entry.Port, sessionPort)
+	}
+}
+
+

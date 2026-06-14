@@ -60,6 +60,7 @@ type Manager struct {
 	events    chan Event
 	registrar Registrar // nil-safe: always set, NoopRegistrar when disabled
 	tsFQDN    string    // empty when Tailscale is disabled
+	registry  *PortRegistry
 }
 
 // EventType identifies the lifecycle event emitted on the SSE channel.
@@ -99,6 +100,28 @@ func NewManager(stateFile string, registrar Registrar, tsFQDN string, registrati
 	}
 	m.loadState()
 
+	registryPath := filepath.Join(filepath.Dir(stateFile), "port-registry.json")
+	m.registry = NewPortRegistry(registryPath)
+	if loaded, err := LoadPortRegistry(registryPath); err == nil {
+		m.registry = loaded
+	}
+
+	// Reconcile: ensure all restored sessions have a registry entry.
+	// Guards against divergence between sessions.json and port-registry.json
+	// after crashes or config changes that purged entries of other types.
+	for _, s := range m.sessions {
+		key := registryKey(s.Type, s.Dir)
+		if _, ok := m.registry.Get(key); !ok {
+			m.registry.Set(key, &PortEntry{
+				Dir:         s.Dir,
+				Type:        s.Type,
+				Port:        s.Port,
+				LastStarted: s.StartedAt,
+			})
+		}
+	}
+	m.registry.Save()
+
 	return m
 }
 
@@ -137,18 +160,47 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 
 	// Return existing session if one is already running for this dir+type
 	if existing := m.findByDirAndType(dir, sessionType); existing != nil {
+		// Update last_started in registry for idempotent returns (AC 8)
+		key := registryKey(sessionType, dir)
+		m.registry.Set(key, &PortEntry{
+			Dir:         dir,
+			Type:        sessionType,
+			Port:        existing.Port,
+			LastStarted: time.Now(),
+		})
+		m.registry.Save()
 		return existing, nil
 	}
 
-	port, err := m.nextPort(reg.portRange)
-	if err != nil {
-		return nil, err
+	// --- registry lookup ---
+	m.registry.PurgeStale(reg.portRange, time.Now().Add(-14*24*time.Hour))
+	m.registry.PurgeOutOfRange(reg.portRange, sessionType)
+
+	key := registryKey(sessionType, dir)
+	var port int
+	if entry, ok := m.registry.Get(key); ok && entry.Port >= reg.portRange[0] && entry.Port <= reg.portRange[1] && portFree(entry.Port) {
+		port = entry.Port
+	} else {
+		allocated, err := m.nextPort(reg.portRange)
+		if err != nil {
+			return nil, err
+		}
+		port = allocated
 	}
 
 	cmd, err := reg.factory.Start(dir, port)
 	if err != nil {
 		return nil, err
 	}
+
+	m.registry.Set(key, &PortEntry{
+		Dir:         dir,
+		Type:        sessionType,
+		Port:        port,
+		LastStarted: time.Now(),
+	})
+	m.registry.Save()
+	// --- end registry lookup ---
 
 	s := &Session{
 		ID:        uuid.New().String(),

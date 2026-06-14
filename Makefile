@@ -1,4 +1,4 @@
-.PHONY: build deploy run test install
+.PHONY: build deploy run test install tailscale-prune
 
 build:
 	go build -ldflags="-s -w" -o bin/workspace-portal ./cmd/portal
@@ -11,6 +11,9 @@ run:
 
 test:
 	go test -v ./...
+
+tailscale-prune:
+	./bin/tailscale-prune
 
 install: deploy
 	./deploy/launchd/install.sh

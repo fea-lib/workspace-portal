@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,17 +15,22 @@ import (
 )
 
 type mockRegistrar struct {
+	mu           sync.Mutex
 	registered   []int
 	deregistered []int
 }
 
 func (m *mockRegistrar) Register(port int) (string, error) {
+	m.mu.Lock()
 	m.registered = append(m.registered, port)
+	m.mu.Unlock()
 	return fmt.Sprintf("https://mock.ts.net:%d", port), nil
 }
 
 func (m *mockRegistrar) Deregister(port int) error {
+	m.mu.Lock()
 	m.deregistered = append(m.deregistered, port)
+	m.mu.Unlock()
 	return nil
 }
 
@@ -75,6 +81,22 @@ func (f *noopFactory) Stop(pid int) error {
 
 func (f *noopFactory) HealthURL(port int) string { return "" }
 
+func (m *mockRegistrar) RegisteredPorts() []int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]int, len(m.registered))
+	copy(out, m.registered)
+	return out
+}
+
+func (m *mockRegistrar) DeregisteredPorts() []int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]int, len(m.deregistered))
+	copy(out, m.deregistered)
+	return out
+}
+
 func TestManagerRegistersPortOnStart(t *testing.T) {
 	// Start a real HTTP server so the health check passes quickly.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -103,14 +125,15 @@ func TestManagerRegistersPortOnStart(t *testing.T) {
 	// waitHealthy runs asynchronously; poll until registration completes.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(registrar.registered) > 0 {
+		if len(registrar.RegisteredPorts()) > 0 {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	if len(registrar.registered) != 1 || registrar.registered[0] != s.Port {
-		t.Errorf("expected port %d to be registered, got %v", s.Port, registrar.registered)
+	registered := registrar.RegisteredPorts()
+	if len(registered) != 1 || registered[0] != s.Port {
+		t.Errorf("expected port %d to be registered, got %v", s.Port, registered)
 	}
 	// Reload the session to get the updated URL (set by waitHealthy).
 	updated, ok := mgr.Get(s.ID)
@@ -138,7 +161,8 @@ func TestManagerDeregistersPortOnStop(t *testing.T) {
 	s, _ := mgr.Start(session.SessionTypeOpenCode, t.TempDir())
 	mgr.Stop(s.ID)
 
-	if len(registrar.deregistered) != 1 || registrar.deregistered[0] != s.Port {
-		t.Errorf("expected port %d to be deregistered, got %v", s.Port, registrar.deregistered)
+	deregistered := registrar.DeregisteredPorts()
+	if len(deregistered) != 1 || deregistered[0] != s.Port {
+		t.Errorf("expected port %d to be deregistered, got %v", s.Port, deregistered)
 	}
 }
