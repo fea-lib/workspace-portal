@@ -39,12 +39,12 @@ type healthyFactory struct {
 	healthURL string
 }
 
-func (f *healthyFactory) Start(dir string, port int) (*exec.Cmd, error) {
+func (f *healthyFactory) Start(dir string, port int) (*exec.Cmd, int, error) {
 	cmd := exec.Command("sleep", "9999")
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return cmd, nil
+	return cmd, port, nil
 }
 
 func (f *healthyFactory) Stop(pid int) error {
@@ -62,12 +62,12 @@ func (f *healthyFactory) HealthURL(port int) string { return f.healthURL }
 // HealthURL returns "" so health checks never pass. Used for stop/deregister tests.
 type noopFactory struct{}
 
-func (f *noopFactory) Start(dir string, port int) (*exec.Cmd, error) {
+func (f *noopFactory) Start(dir string, port int) (*exec.Cmd, int, error) {
 	cmd := exec.Command("sleep", "9999")
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return cmd, nil
+	return cmd, port, nil
 }
 
 func (f *noopFactory) Stop(pid int) error {

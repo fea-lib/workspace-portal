@@ -32,8 +32,10 @@ type Session struct {
 // (binary path, flags, credentials) so that Start only needs what varies per
 // session (directory and port).
 type SessionFactory interface {
-	// Start launches the process. Returns the exec.Cmd (process not yet healthy).
-	Start(dir string, port int) (cmd *exec.Cmd, err error)
+	// Start launches the process. Returns the exec.Cmd, the actual port the
+	// process bound to (may differ from the requested port for docs sessions
+	// when port fallback occurs), and any error.
+	Start(dir string, port int) (cmd *exec.Cmd, actualPort int, err error)
 	// Stop terminates the process.
 	Stop(pid int) error
 	// HealthURL returns the URL to poll for the health check.

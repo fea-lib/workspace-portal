@@ -61,7 +61,7 @@ func TestOCSessionFactory_StartSucceeds_WithoutCaffeinate(t *testing.T) {
 	// Shadow PATH so caffeinate is unavailable.
 	t.Setenv("PATH", "/usr/bin:/bin")
 
-	cmd, err := factory.Start(t.TempDir(), 49999)
+	cmd, _, err := factory.Start(t.TempDir(), 49999)
 	if err != nil {
 		// If sleep binary isn't found, skip.
 		t.Skipf("sleep binary not available: %v", err)
@@ -88,7 +88,7 @@ func TestVSCodeSessionFactory_StartSucceeds_WithoutCaffeinate(t *testing.T) {
 
 	// code-server arg format: sleep --bind-addr ... -- but sleep doesn't care,
 	// it just starts. The point is cmd.Start() succeeds.
-	cmd, err := factory.Start(t.TempDir(), 49998)
+	cmd, _, err := factory.Start(t.TempDir(), 49998)
 	if err != nil {
 		t.Skipf("could not start factory (binary issue): %v", err)
 	}

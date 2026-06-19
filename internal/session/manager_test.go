@@ -19,19 +19,19 @@ type fakeFactory struct {
 	stopErr  error
 }
 
-func (f *fakeFactory) Start(dir string, port int) (*exec.Cmd, error) {
+func (f *fakeFactory) Start(dir string, port int) (*exec.Cmd, int, error) {
 	if f.startErr != nil {
-		return nil, f.startErr
+		return nil, 0, f.startErr
 	}
 	cmd := exec.Command("sleep", "9999")
 	if err := cmd.Start(); err != nil {
 		// Fallback: if sleep is not available, use a shell one-liner.
 		cmd = exec.Command("sh", "-c", "sleep 9999")
 		if err2 := cmd.Start(); err2 != nil {
-			return nil, err2
+			return nil, 0, err2
 		}
 	}
-	return cmd, nil
+	return cmd, port, nil
 }
 
 func (f *fakeFactory) Stop(pid int) error {

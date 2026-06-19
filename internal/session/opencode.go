@@ -15,7 +15,7 @@ type OCSessionFactory struct {
 	CORSOrigin string
 }
 
-func (r *OCSessionFactory) Start(dir string, port int) (*exec.Cmd, error) {
+func (r *OCSessionFactory) Start(dir string, port int) (*exec.Cmd, int, error) {
 	// Use "serve" subcommand for headless HTTP mode.
 	// opencode serve does NOT accept a positional directory argument;
 	// the project is selected via the working directory (cmd.Dir).
@@ -32,12 +32,12 @@ func (r *OCSessionFactory) Start(dir string, port int) (*exec.Cmd, error) {
 	cmd.Stdout = log.Writer()
 	cmd.Stderr = log.Writer()
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("starting opencode: %w", err)
+		return nil, 0, fmt.Errorf("starting opencode: %w", err)
 	}
 
 	attachCaffeinate(cmd.Process.Pid)
 
-	return cmd, nil
+	return cmd, port, nil
 }
 
 func (r *OCSessionFactory) Stop(pid int) error {

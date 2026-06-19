@@ -188,7 +188,7 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 		port = allocated
 	}
 
-	cmd, err := reg.factory.Start(dir, port)
+	cmd, actualPort, err := reg.factory.Start(dir, port)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +196,7 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 	m.registry.Set(key, &PortEntry{
 		Dir:         dir,
 		Type:        sessionType,
-		Port:        port,
+		Port:        actualPort,
 		LastStarted: time.Now(),
 	})
 	m.registry.Save()
@@ -206,7 +206,7 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 		ID:        uuid.New().String(),
 		Type:      sessionType,
 		Dir:       dir,
-		Port:      port,
+		Port:      actualPort,
 		PID:       cmd.Process.Pid,
 		StartedAt: time.Now(),
 	}
@@ -238,7 +238,7 @@ func (m *Manager) Start(sessionType SessionType, dir string) (*Session, error) {
 		}
 	}
 
-	go m.waitHealthy(s, reg.factory.HealthURL(port), healthTimeout)
+	go m.waitHealthy(s, reg.factory.HealthURL(actualPort), healthTimeout)
 
 	return s, nil
 }

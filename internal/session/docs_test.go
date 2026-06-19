@@ -29,7 +29,7 @@ func TestDocsFactoryStartBuildsExpectedCommand(t *testing.T) {
 	t.Setenv("ARGS_FILE", argsFile)
 
 	f := &DocsSessionFactory{Binary: "npx", Package: "fea-docs@latest"}
-	cmd, err := f.Start(workDir, 4311)
+	cmd, _, err := f.Start(workDir, 4311)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestDocsFactoryStartMissingNodeIsActionable(t *testing.T) {
 	t.Setenv("PATH", binDir)
 
 	f := &DocsSessionFactory{Binary: "npx", Package: "fea-docs@latest"}
-	_, err := f.Start(workDir, 4321)
+	_, _, err := f.Start(workDir, 4321)
 	if err == nil {
 		t.Fatal("expected error when node is missing")
 	}
@@ -85,7 +85,7 @@ func TestDocsFactoryStartMissingNpxIsActionable(t *testing.T) {
 	t.Setenv("PATH", binDir)
 
 	f := &DocsSessionFactory{Binary: "npx", Package: "fea-docs@latest"}
-	_, err := f.Start(workDir, 4321)
+	_, _, err := f.Start(workDir, 4321)
 	if err == nil {
 		t.Fatal("expected error when npx is missing")
 	}
