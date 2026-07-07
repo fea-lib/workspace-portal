@@ -23,7 +23,7 @@ func TestDocsFactoryStartBuildsExpectedCommand(t *testing.T) {
 	argsFile := filepath.Join(t.TempDir(), "args.txt")
 
 	writeExecutable(t, binDir, "node", "#!/bin/sh\nexit 0\n")
-	writeExecutable(t, binDir, "npx", "#!/bin/sh\nprintf '%s\n' \"$@\" > \"$ARGS_FILE\"\nexec sleep 30\n")
+	writeExecutable(t, binDir, "npx", "#!/bin/sh\nprintf '%s\n' \"$@\" > \"$ARGS_FILE\"\necho \"localhost:4311\"\nexec sleep 30\n")
 
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 	t.Setenv("ARGS_FILE", argsFile)

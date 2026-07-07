@@ -2,6 +2,7 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -34,7 +35,9 @@ func (r *DocsSessionFactory) Start(dir string, port int) (*exec.Cmd, int, error)
 
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
-	cmd.Stderr = log.Writer()
+
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(log.Writer(), &stderrBuf)
 
 	actualPort := port
 	portCh := make(chan int, 1)
@@ -58,10 +61,27 @@ func (r *DocsSessionFactory) Start(dir string, port int) (*exec.Cmd, int, error)
 		return nil, 0, fmt.Errorf("starting docs session: %w", err)
 	}
 
-	select {
-	case actualPort = <-portCh:
-	case <-time.After(10 * time.Second):
-		log.Printf("warning: docs session port not discovered in time, using assigned %d", port)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+loop:
+	for {
+		select {
+		case p := <-portCh:
+			actualPort = p
+			break loop
+		case <-time.After(10 * time.Second):
+			log.Printf("warning: docs session port not discovered in time, using assigned %d", port)
+			break loop
+		case <-ticker.C:
+			if cmd.Process != nil && cmd.Process.Signal(syscall.Signal(0)) != nil {
+				errMsg := strings.TrimSpace(stderrBuf.String())
+				if errMsg == "" {
+					errMsg = "process exited before becoming healthy"
+				}
+				return nil, 0, fmt.Errorf("starting docs session: %s", errMsg)
+			}
+		}
 	}
 
 	attachCaffeinate(cmd.Process.Pid)
