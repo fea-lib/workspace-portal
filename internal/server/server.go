@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"workspace-portal/internal/assets"
@@ -60,6 +63,12 @@ func Start(cfg *config.Config) error {
 		ts := &tailscale.Serve{Binary: cfg.Tailscale.Binary}
 		tsFQDN = ts.FDQN()
 		tailscalRegistrar = ts
+
+		if _, err := ts.Register(cfg.PortalPort); err != nil {
+			log.Printf("tailscale register portal port %d: %v", cfg.PortalPort, err)
+		} else {
+			log.Printf("tailscale serve enabled for portal at https://%s:%d", tsFQDN, cfg.PortalPort)
+		}
 	} else {
 		tailscalRegistrar = &session.NoopRegistrar{}
 	}
@@ -99,7 +108,32 @@ func Start(cfg *config.Config) error {
 	// Bind only on loopback so tailscale serve can bind the same port number
 	// on the Tailscale interface without a conflict.
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.PortalPort)
-	log.Printf("listening on %s", addr)
+	httpSrv := &http.Server{Addr: addr, Handler: srv}
 
-	return http.ListenAndServe(addr, srv)
+	// Graceful shutdown on SIGINT/SIGTERM
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-quit
+		log.Println("shutting down...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(ctx); err != nil {
+			log.Printf("http shutdown: %v", err)
+		}
+	}()
+
+	log.Printf("listening on %s", addr)
+	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+
+	// Deregister portal port from tailscale
+	if cfg.Tailscale.Enabled {
+		ts := &tailscale.Serve{Binary: cfg.Tailscale.Binary}
+		ts.Deregister(cfg.PortalPort)
+		log.Printf("tailserve serve disabled for portal port %d", cfg.PortalPort)
+	}
+
+	return nil
 }
